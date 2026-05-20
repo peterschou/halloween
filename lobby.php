@@ -34,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $isScarer = isset($_SESSION['user_id']) && $_SESSION['role'] === 'scarer';
 $scarerName = $_SESSION['username'] ?? '';
+$scarerId = $_SESSION['user_id'] ?? 0;
 
 $rooms = [];
 $stmt = $pdo->prepare('SELECT gi.id, gi.room_id, gi.status, u.username AS host_username, gi.created_at FROM game_instances gi JOIN users u ON u.id = gi.host_user_id WHERE gi.status IN ("waiting","active") ORDER BY gi.created_at DESC LIMIT 50');
@@ -90,27 +91,60 @@ $rooms = $stmt->fetchAll();
             <div class="card"><strong>Notice:</strong> <?= htmlspecialchars($message) ?></div>
         <?php endif; ?>
 
+        <section class="card">
+            <h2>Public Lobby</h2>
+            <p>Choose an active room and connect directly to the Host.</p>
+            <ul class="room-list">
+                <?php foreach ($rooms as $room): ?>
+                    <li>
+                        <span><strong><?= htmlspecialchars($room['room_id']) ?></strong> by <?= htmlspecialchars($room['host_username']) ?> — <?= htmlspecialchars($room['status']) ?></span>
+                        <button class="join-room" data-room-id="<?= htmlspecialchars($room['room_id']) ?>" data-instance-id="<?= (int)$room['id'] ?>">Join</button>
+                        <?php if ($isScarer): ?>
+                            <button class="close-room-btn" data-instance-id="<?= (int)$room['id'] ?>" style="margin-left:10px;background:#7f1d1d;color:#fff;">Close</button>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelectorAll('.close-room-btn').forEach(function(btn) {
+                    btn.onclick = async function() {
+                        if (!confirm('Are you sure you want to close this game?')) return;
+                        btn.disabled = true;
+                        btn.textContent = 'Closing...';
+                        try {
+                            const resp = await fetch('close_game.php', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ instance_id: btn.dataset.instanceId })
+                            });
+                            const data = await resp.json();
+                            if (data.success) {
+                                window.location.reload();
+                            } else {
+                                alert('Failed to close: ' + (data.error || 'Unknown error'));
+                            }
+                        } catch (e) {
+                            alert('Error: ' + (e.message || e));
+                        } finally {
+                            btn.disabled = false;
+                            btn.textContent = 'Close';
+                        }
+                    };
+                });
+            });
+            </script>
+            <?php if (empty($rooms)): ?>
+                <p>No active rooms found. Check back later.</p>
+            <?php endif; ?>
+            <div id="peerControls" class="card hidden" style="margin-top: 18px;">
+                <h3>Walker Controls</h3>
+                <p>Once you join, use arrow keys to move along the haunted pathway.</p>
+                <p>Watch for real-time scare effects from the Host.</p>
+            </div>
+        </section>
+
         <?php if (!$isScarer): ?>
-            <section class="card">
-                <h2>Public Lobby</h2>
-                <p>Choose an active room and connect directly to the Host.</p>
-                <ul class="room-list">
-                    <?php foreach ($rooms as $room): ?>
-                        <li>
-                            <span><strong><?= htmlspecialchars($room['room_id']) ?></strong> by <?= htmlspecialchars($room['host_username']) ?> — <?= htmlspecialchars($room['status']) ?></span>
-                            <button class="join-room" data-room-id="<?= htmlspecialchars($room['room_id']) ?>" data-instance-id="<?= (int)$room['id'] ?>">Join</button>
-                        </li>
-                    <?php endforeach; ?>
-                </ul>
-                <?php if (empty($rooms)): ?>
-                    <p>No active rooms found. Check back later.</p>
-                <?php endif; ?>
-                <div id="peerControls" class="card hidden" style="margin-top: 18px;">
-                    <h3>Walker Controls</h3>
-                    <p>Once you join, use arrow keys to move along the haunted pathway.</p>
-                    <p>Watch for real-time scare effects from the Host.</p>
-                </div>
-            </section>
             <section class="card">
                 <h2>Scarer Login</h2>
                 <form method="post" autocomplete="off">
@@ -120,44 +154,17 @@ $rooms = $stmt->fetchAll();
                     <button type="submit">Log in as Scarer</button>
                 </form>
             </section>
-        <?php else: ?>
+        <?php endif; ?>
+
+        <?php if ($isScarer): ?>
             <section class="card">
-                <h2>Host Dashboard</h2>
-                <p>Logged in as <strong><?= htmlspecialchars($scarerName) ?></strong>.</p>
-                <form method="post" style="display:inline-block; margin-bottom:1rem;">
-                    <input type="hidden" name="action" value="logout">
-                    <button type="submit">Logout</button>
-                </form>
-
-                <div class="card" style="background: rgba(97, 74, 191, .12);">
-                    <label>Room code <input id="roomInput" placeholder="spooky-room-007"></label>
-                    <button id="createRoomBtn">Create Instance</button>
-                </div>
-
-                <div id="hostControls" class="card hidden">
-                    <p><strong>Room:</strong> <span id="hostRoomId">—</span></p>
-                    <p><strong>Host Peer ID:</strong> <span id="hostPeerId">—</span></p>
-                    <p class="status">Ready to host.</p>
-                    <button type="button" onclick="sendScare('Spectral Chill')">Trigger Spectral Chill</button>
-                    <button type="button" onclick="sendScare('Flashbang Fear')">Trigger Flashbang Fear</button>
-                    <button type="button" onclick="sendScare('Ghostly Whisper')">Trigger Ghostly Whisper</button>
-                </div>
+                <h2>Create Room Instance</h2>
+                <label>Room code <input id="roomInput" placeholder="spooky-room-007"></label>
+                <button id="createRoomBtn">Create Instance</button>
             </section>
         <?php endif; ?>
 
-        <section class="card">
-            <h2>Gameplay Preview</h2>
-            <div id="gamePath">
-                <div id="pathTrack"></div>
-                <div id="playerLayer"></div>
-                <div id="scareOverlay"></div>
-            </div>
-            <p>Use the arrow keys to move along the path when connected as a walker.</p>
-            <p class="status" id="statusMessage">Status will appear here.</p>
-            <div id="connectionBadge" class="status-badge offline">Offline</div>
-            <pre id="debugLog" style="white-space: pre-wrap; background: rgba(12, 14, 28, 0.9); border: 1px solid #262a45; color: #c6d9ff; padding: 12px; border-radius: 12px; max-height: 180px; overflow:auto; margin-top: 16px; font-size:0.9rem;">Debug output will appear here.</pre>
-            <ul id="peerList"></ul>
-        </section>
+        <!-- Gameplay panel moved to gamepanel.php -->
     </div>
 
     <script>

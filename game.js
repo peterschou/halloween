@@ -167,13 +167,17 @@ function computeProximity(playerArray) {
 async function initHost(roomId) {
   hostState.roomId = roomId;
   hostState.hostPeerId = 'host';
-  document.getElementById('hostPeerId').textContent = hostState.hostPeerId;
-  document.getElementById('hostRoomId').textContent = hostState.roomId;
+  const hostPeerElem = document.getElementById('hostPeerId');
+  const hostRoomElem = document.getElementById('hostRoomId');
+  if (hostPeerElem) hostPeerElem.textContent = hostState.hostPeerId;
+  if (hostRoomElem) hostRoomElem.textContent = hostState.roomId;
   hostState.position = { x: 10, y: 10, role: 'host' };
   gameState.players[hostState.hostPeerId] = hostState.position;
   renderGameState({ players: gameState.players });
   updatePathUI();
-  await createRoomOnServer(roomId);
+  if (!hostState.instanceId) {
+    await createRoomOnServer(roomId);
+  }
   hostState.polling = true;
   pollHostSignals();
   setInterval(pollHostSignals, 1500);
@@ -550,10 +554,23 @@ async function sendScare(effect) {
   displayScare(effect);
 }
 
+function isGameplayPage() {
+  return !!document.getElementById('gamePath') &&
+         !!document.getElementById('hostPeerId') &&
+         !!document.getElementById('hostRoomId');
+}
+
 function bootstrapLobby() {
-  const createButton = document.getElementById('createRoomBtn');
+  let createButton = document.getElementById('createRoomBtn');
   const joinButtons = document.querySelectorAll('.join-room');
   if (createButton) {
+    // Remove all previous event listeners by replacing with a clone
+    const newBtn = createButton.cloneNode(true);
+    createButton.parentNode.replaceChild(newBtn, createButton);
+    createButton = newBtn;
+  }
+  if (createButton && isGameplayPage()) {
+    // Only on gameplay page: allow host to start game
     createButton.addEventListener('click', async () => {
       const roomId = document.getElementById('roomInput').value.trim();
       if (!roomId) {
@@ -561,23 +578,66 @@ function bootstrapLobby() {
         return;
       }
       await initHost(roomId);
-      document.getElementById('hostControls').classList.remove('hidden');
+      const hostControls = document.getElementById('hostControls');
+      if (hostControls) hostControls.classList.remove('hidden');
+    });
+  } else if (createButton) {
+    // In the lobby or any other page: only redirect after room creation
+    createButton.addEventListener('click', async () => {
+      const roomId = document.getElementById('roomInput').value.trim();
+      if (!roomId) {
+        alert('Enter a room code first.');
+        return;
+      }
+      try {
+        const payload = {
+          action: 'create_room',
+          room_id: roomId,
+          host_user_id: window.SCARER_USER_ID || 0,
+        };
+        const result = await apiPost(payload);
+        window.location.href = `gamepanel.php?room=${encodeURIComponent(roomId)}&instance=${encodeURIComponent(result.instance_id)}`;
+      } catch (err) {
+        alert('Failed to create room: ' + (err?.message || err));
+      }
     });
   }
-  document.addEventListener('click', async event => {
-    const target = event.target;
-    if (target.matches('.join-room')) {
-      const roomId = target.dataset.roomId;
-      localPeerState.instanceId = Number(target.dataset.instanceId);
-      showStatus(`Joining room ${roomId}...`, 'waiting');
-      await initPeer(roomId);
-      const peerPanel = document.getElementById('peerControls');
-      if (peerPanel) {
-        peerPanel.classList.remove('hidden');
-      }
-    }
-  });
-  bindMovementControls();
+  // ...existing code for join buttons and movement controls...
 }
 
 window.addEventListener('load', bootstrapLobby);
+
+if (isGameplayPage()) {
+  // On gameplay page, initialize host or peer based on URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomId = window.GAME_ROOM_ID || urlParams.get('room');
+  const instanceId = window.GAME_INSTANCE_ID || urlParams.get('instance');
+  debug('Gameplay page init:', { roomId, instanceId, user: window.SCARER_USER_ID });
+  if (window.SCARER_USER_ID && roomId && instanceId) {
+    // Host
+    hostState.instanceId = Number(instanceId);
+    debug('Host initializing with', { roomId, instanceId });
+    initHost(roomId);
+    updateConnectionBadge('online');
+    bindMovementControls();
+  } else if (roomId && instanceId) {
+    // Peer
+    localPeerState.instanceId = Number(instanceId);
+    debug('Peer initializing with', { roomId, instanceId });
+    initPeer(roomId);
+    updateConnectionBadge('waiting');
+    bindMovementControls();
+  } else {
+    debug('Missing room or instance id for gameplay init', { roomId, instanceId });
+    updateConnectionBadge('error');
+  }
+}
+
+document.addEventListener('click', function(event) {
+    const target = event.target;
+    if (target.matches('.join-room')) {
+      const roomId = target.dataset.roomId;
+      const instanceId = target.dataset.instanceId;
+      window.location.href = `gamepanel.php?room=${encodeURIComponent(roomId)}&instance=${encodeURIComponent(instanceId)}`;
+    }
+  });
