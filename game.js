@@ -486,6 +486,11 @@ function handleHostMessage(peerId, rawData) {
     return;
   }
   if (msg.type === 'movement') {
+    // Ignore movement from frozen walkers.
+    const existingPlayer = gameState.players[peerId];
+    if (existingPlayer && existingPlayer.role === 'walker' && existingPlayer.frozen) {
+      return;
+    }
     msg.payload.role = msg.payload.role || 'walker';
     // Always set username for walker
     if (!msg.payload.username) {
@@ -567,6 +572,11 @@ function sendMovement(deltaX, deltaY) {
   const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
   const selfRole = hostState.hostPeerId === 'host' && !localPeerState.peerId ? 'host' : 'walker';
   const current = selfId && gameState.players[selfId] ? gameState.players[selfId] : { x: 0, y: 0 };
+
+  if (selfRole === 'walker' && current.frozen) {
+    return;
+  }
+
   const newX = clampMovement(current.x + deltaX, selfRole, 'x', current.x);
   const newY = clampMovement(current.y + deltaY, selfRole, 'y', current.y);
   let username = (selfRole === 'host') ? (window.SCARER_USERNAME || selfId) : (window.WALKER_USERNAME || selfId);
