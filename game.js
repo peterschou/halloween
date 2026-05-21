@@ -774,8 +774,16 @@ if (isGameplayPage() && window.SCARER_USER_ID) {
     if (e.key === 'w') {
       const target = getNearbyWalker();
       if (target && target.player.frozen) {
-        // Remove walker, increment soul counter
-        delete gameState.players[target.peerId];
+        // Respawn walker in the safe zone after fatal scare
+        const respawnedWalker = {
+          ...target.player,
+          x: WALKER_START_X,
+          y: 50,
+          frozen: false,
+          scareCount: 0,
+          respawnedAt: Date.now(),
+        };
+        gameState.players[target.peerId] = respawnedWalker;
         soulCounter++;
         updateSoulCounter();
         renderGameState({ players: gameState.players });
