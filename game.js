@@ -6,6 +6,11 @@
 const SIGNAL_API = 'signal.php';
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 const DEBUG_LOG = true;
+// --- Constants for safe zone and proximity ---
+const SAFE_ZONE_X = 12; // Walkers start at x=5, safe zone is x<=12
+const WALKER_START_X = 5;
+const SCARER_START_X = 95;
+const PROXIMITY_DISTANCE = 14;
 const peerConnections = new Map();
 const pendingHostIce = new Map();
 let hostState = {
@@ -131,13 +136,31 @@ function renderPlayerLayer(players) {
   if (!layer) return;
   layer.innerHTML = '';
   const playerIds = Object.keys(players);
-  const nearSet = computeProximity(playerIds.map(id => ({ id, data: players[id] })));
+  const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
+  const self = selfId ? players[selfId] : null;
+  let visibleIds = new Set();
+  if (self) {
+    visibleIds.add(selfId);
+    // Only show others if within proximity
+    for (const peerId of playerIds) {
+      if (peerId === selfId) continue;
+      const other = players[peerId];
+      if (!other) continue;
+      const dx = self.x - other.x;
+      const dy = self.y - other.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < PROXIMITY_DISTANCE) {
+        visibleIds.add(peerId);
+      }
+    }
+  }
   for (const peerId of playerIds) {
+    if (!visibleIds.has(peerId)) continue;
     const player = players[peerId];
     if (!player || typeof player.x !== 'number' || typeof player.y !== 'number') continue;
     const role = player.role || (peerId === 'host' ? 'host' : 'walker');
     const avatar = document.createElement('div');
-    avatar.className = `player-avatar ${role}` + (nearSet.has(peerId) ? ' near' : '');
+    avatar.className = `player-avatar ${role}` + (player.x <= SAFE_ZONE_X && role === 'walker' ? ' near' : '');
     avatar.style.left = `${Math.min(96, Math.max(2, player.x))}%`;
     avatar.style.top = `${Math.min(88, Math.max(2, player.y))}%`;
     avatar.dataset.label = role === 'host' ? 'H' : 'W';
@@ -171,16 +194,20 @@ async function initHost(roomId) {
   const hostRoomElem = document.getElementById('hostRoomId');
   if (hostPeerElem) hostPeerElem.textContent = hostState.hostPeerId;
   if (hostRoomElem) hostRoomElem.textContent = hostState.roomId;
-  hostState.position = { x: 10, y: 10, role: 'host' };
+  hostState.position = { x: SCARER_START_X, y: 50, role: 'host', username: window.SCARER_USERNAME || 'host' };
   gameState.players[hostState.hostPeerId] = hostState.position;
   renderGameState({ players: gameState.players });
   updatePathUI();
   if (!hostState.instanceId) {
     await createRoomOnServer(roomId);
   }
-  hostState.polling = true;
-  pollHostSignals();
-  setInterval(pollHostSignals, 1500);
+  // Start polling only after instanceId is set
+  if (hostState.instanceId) {
+    debug('Host polling loop starting', { instanceId: hostState.instanceId });
+    hostState.polling = true;
+    pollHostSignals();
+    setInterval(pollHostSignals, 1500);
+  }
 }
 
 async function createRoomOnServer(roomId) {
@@ -227,6 +254,8 @@ function buildHostPeerConnection(peerId) {
       console.log('Host connected to peer', peerId);
       hostState.connectedPeers.add(peerId);
       showStatus(`Connected peers: ${hostState.connectedPeers.size}`, 'connected');
+      // Force info bar update on host peer connect
+      renderGameState({ players: gameState.players });
     };
   };
 
@@ -248,7 +277,6 @@ function buildHostPeerConnection(peerId) {
 async function pollHostSignals() {
   if (!hostState.polling || !hostState.instanceId) {
     debug('host poll skipped', { polling: hostState.polling, instanceId: hostState.instanceId });
-    return;
   }
   debug('host poll starting', { instanceId: hostState.instanceId, hostPeerId: hostState.hostPeerId });
   try {
@@ -322,6 +350,8 @@ async function initPeer(roomId) {
     if (localPeerState.pc.connectionState === 'connected') {
       showStatus('Connected to host. Ready for scares.', 'connected');
       clearTimeout(localPeerState.joinTimeout);
+      // Force info bar update on connect
+      renderGameState({ players: gameState.players });
     }
   };
   localPeerState.channel = localPeerState.pc.createDataChannel('scarepath');
@@ -330,6 +360,8 @@ async function initPeer(roomId) {
     showStatus('Connected to host. Ready for scares.', 'connected');
     clearTimeout(localPeerState.joinTimeout);
     updatePathUI();
+    // Force info bar update on data channel open
+    renderGameState({ players: gameState.players });
   };
   localPeerState.channel.onmessage = event => handlePeerMessage(event.data);
   localPeerState.pc.onicecandidate = async event => {
@@ -343,6 +375,17 @@ async function initPeer(roomId) {
       payload: event.candidate.toJSON(),
     });
   };
+  // Set initial walker position in safe zone, include username
+  // Use session username if available, else prompt, else peerId
+  let walkerName = window.WALKER_USERNAME;
+  if (!walkerName || walkerName === 'null') {
+    walkerName = prompt('Enter your name for the game:', 'Walker') || localPeerState.peerId;
+    window.WALKER_USERNAME = walkerName;
+  }
+  gameState.players[localPeerState.peerId] = { x: WALKER_START_X, y: 50, role: 'walker', username: walkerName };
+  if (!gameState.players[localPeerState.peerId].username) {
+    gameState.players[localPeerState.peerId].username = walkerName;
+  }
   await createOfferToHost();
   localPeerState.joinTimeout = window.setTimeout(() => {
     if (!localPeerState.channel || localPeerState.channel.readyState !== 'open') {
@@ -392,7 +435,7 @@ async function pollPeerSignals() {
     for (const signal of result.signals) {
       if (signal.kind === 'answer') {
         await localPeerState.pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
-            showStatus('Answer received from Host. Finalizing connection...', 'waiting');
+        showStatus('Answer received from Host. Finalizing connection...', 'waiting');
         if (localPeerState.pendingIce.length > 0) {
           for (const candidate of localPeerState.pendingIce) {
             try {
@@ -444,15 +487,32 @@ function handleHostMessage(peerId, rawData) {
   }
   if (msg.type === 'movement') {
     msg.payload.role = msg.payload.role || 'walker';
+    // Always set username for walker
+    if (!msg.payload.username) {
+      msg.payload.username = window.WALKER_USERNAME || peerId;
+    }
     gameState.players[peerId] = msg.payload;
+    // Ensure host is always present in player list
+    if (hostState.hostPeerId && !gameState.players[hostState.hostPeerId]) {
+      gameState.players[hostState.hostPeerId] = hostState.position;
+    }
     renderGameState({ players: gameState.players });
     broadcastHostState();
   }
 }
 
 function broadcastHostState() {
-  if (hostState.hostPeerId === 'host') {
-    gameState.players.host = hostState.position;
+  // Always ensure the host is present as the correct peerId in gameState.players
+  if (hostState.hostPeerId) {
+    // Always set username for host
+    if (!hostState.position.username) {
+      hostState.position.username = window.SCARER_USERNAME || hostState.hostPeerId;
+    }
+    gameState.players[hostState.hostPeerId] = hostState.position;
+    // Remove any stale 'host' key if hostPeerId is not literally 'host'
+    if (hostState.hostPeerId !== 'host' && gameState.players.host) {
+      delete gameState.players.host;
+    }
   }
   const payload = {
     type: 'gameState',
@@ -486,7 +546,9 @@ function handlePeerMessage(rawData) {
 
 function renderGameState(payload) {
   if (!payload) return;
+  console.log('[game.js renderGameState] called with:', payload);
   gameState.players = payload.players || {};
+  window.gameState = gameState; // ensure global for info bar
   const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
   const self = selfId ? gameState.players[selfId] : null;
   if (self) {
@@ -502,11 +564,23 @@ function renderGameState(payload) {
 }
 
 function sendMovement(deltaX, deltaY) {
+  const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
+  const selfRole = hostState.hostPeerId === 'host' && !localPeerState.peerId ? 'host' : 'walker';
+  const current = selfId && gameState.players[selfId] ? gameState.players[selfId] : { x: 0, y: 0 };
+  const newX = clampMovement(current.x + deltaX, selfRole, 'x', current.x);
+  const newY = clampMovement(current.y + deltaY, selfRole, 'y', current.y);
+  let username = (selfRole === 'host') ? (window.SCARER_USERNAME || selfId) : (window.WALKER_USERNAME || selfId);
+  // If walker, prompt if not set
+  if (selfRole === 'walker' && (!username || username === 'null')) {
+    username = prompt('Enter your name for the game:', 'Walker') || selfId;
+    window.WALKER_USERNAME = username;
+  }
   const payload = {
-    x: clampMovement(deltaX),
-    y: clampMovement(deltaY),
+    x: newX,
+    y: newY,
     timestamp: Date.now(),
-    role: hostState.hostPeerId === 'host' && !localPeerState.peerId ? 'host' : 'walker',
+    role: selfRole,
+    username: username,
   };
   const movement = { type: 'movement', payload };
 
@@ -523,24 +597,17 @@ function sendMovement(deltaX, deltaY) {
   }
 }
 
-function clampMovement(value) {
-  return Math.min(100, Math.max(0, value));
-}
-
-function bindMovementControls() {
-  let x = 10;
-  let y = 10;
-  document.addEventListener('keydown', event => {
-    const isHostMode = hostState.hostPeerId === 'host';
-    if (!isHostMode && (!localPeerState.channel || localPeerState.channel.readyState !== 'open')) return;
-    if (event.key === 'ArrowRight') x += 4;
-    if (event.key === 'ArrowLeft') x -= 4;
-    if (event.key === 'ArrowDown') y += 4;
-    if (event.key === 'ArrowUp') y -= 4;
-    x = clampMovement(x);
-    y = clampMovement(y);
-    sendMovement(x, y);
-  });
+function clampMovement(value, role, axis, currentX) {
+  if (role === 'host' && axis === 'x') {
+    // Scarer cannot enter safe zone
+    return Math.max(SAFE_ZONE_X + 1, Math.min(100, value));
+  }
+  if (role === 'walker' && axis === 'x') {
+    // Walker can go anywhere
+    return Math.max(0, Math.min(100, value));
+  }
+  // y axis
+  return Math.max(0, Math.min(100, value));
 }
 
 async function sendScare(effect) {
@@ -607,6 +674,7 @@ function bootstrapLobby() {
 
 window.addEventListener('load', bootstrapLobby);
 
+
 if (isGameplayPage()) {
   // On gameplay page, initialize host or peer based on URL params
   const urlParams = new URLSearchParams(window.location.search);
@@ -619,18 +687,31 @@ if (isGameplayPage()) {
     debug('Host initializing with', { roomId, instanceId });
     initHost(roomId);
     updateConnectionBadge('online');
-    bindMovementControls();
   } else if (roomId && instanceId) {
     // Peer
     localPeerState.instanceId = Number(instanceId);
     debug('Peer initializing with', { roomId, instanceId });
     initPeer(roomId);
     updateConnectionBadge('waiting');
-    bindMovementControls();
   } else {
     debug('Missing room or instance id for gameplay init', { roomId, instanceId });
     updateConnectionBadge('error');
   }
+
+  // Add arrow key movement for both host and walkers
+  window.addEventListener('keydown', function(e) {
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    let dx = 0, dy = 0;
+    switch (e.key) {
+      case 'ArrowLeft': dx = -4; break;
+      case 'ArrowRight': dx = 4; break;
+      case 'ArrowUp': dy = -4; break;
+      case 'ArrowDown': dy = 4; break;
+      default: return;
+    }
+    sendMovement(dx, dy);
+    e.preventDefault();
+  });
 }
 
 document.addEventListener('click', function(event) {
@@ -641,3 +722,8 @@ document.addEventListener('click', function(event) {
       window.location.href = `gamepanel.php?room=${encodeURIComponent(roomId)}&instance=${encodeURIComponent(instanceId)}`;
     }
   });
+
+
+// ...existing code...
+
+

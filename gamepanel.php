@@ -89,6 +89,7 @@ $instanceId = $_GET['instance'] ?? '';
         <?php endif; ?>
         <section class="card">
             <h2>Gameplay</h2>
+            <button type="button" onclick="if(confirm('Are you sure you want to leave the game?')) window.location.href='lobby.php'" style="float:right;margin-top:-8px;margin-right:-8px;background:#374151;color:#fff;">Leave</button>
             <div id="gamePath">
                 <div id="pathTrack"></div>
                 <div id="playerLayer"></div>
@@ -101,6 +102,7 @@ $instanceId = $_GET['instance'] ?? '';
             </div>
             <ul id="peerList"></ul>
             <p class="status" id="statusMessage">Status will appear here.</p>
+            <div id="roomInfoBar"></div>
         </section>
     </div>
     <!-- Hidden host info for JS compatibility -->
@@ -110,9 +112,116 @@ $instanceId = $_GET['instance'] ?? '';
     </div>
     <script>
         window.SCARER_USER_ID = <?= $isScarer ? (int)$_SESSION['user_id'] : 0 ?>;
+        window.SCARER_USERNAME = <?= $isScarer ? json_encode($scarerName) : 'null' ?>;
+        window.WALKER_USERNAME = <?= !$isScarer && isset($_SESSION['username']) ? json_encode($_SESSION['username']) : 'null' ?>;
         window.GAME_INSTANCE_ID = <?= $instanceId ? (int)$instanceId : 0 ?>;
         window.GAME_ROOM_ID = <?= $roomId ? json_encode($roomId) : 'null' ?>;
     </script>
+    <style>
+    #roomInfoTable {
+        width: 100%;
+        margin: 18px 0 0 0;
+        background: #181a31;
+        border-radius: 12px;
+        border: 1px solid #35386e;
+        color: #e5e7eb;
+        font-size: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    #roomInfoTable th, #roomInfoTable td {
+        padding: 12px 18px;
+        text-align: left;
+        vertical-align: top;
+    }
+    #roomInfoTable th {
+        background: #23244a;
+        font-weight: 600;
+        font-size: 1.05rem;
+        border-bottom: 1px solid #35386e;
+    }
+    #roomInfoTable td {
+        background: #181a31;
+    }
+    #roomInfoTable ul {
+        margin: 0; padding-left: 18px;
+    }
+    </style>
+    <script>
+    // Update room info panel with live data as a table
+    function updateRoomInfo(players) {
+        console.log('[updateRoomInfo] called with:', players);
+        var scarer = '—';
+        var walkers = [];
+        for (const id in players) {
+            const p = players[id];
+            if (id === 'host' || p.role === 'host') {
+                scarer = p.username || id;
+            } else {
+                walkers.push(p.username || id);
+            }
+        }
+        var tableHtml = '<table id="roomInfoTable">';
+        tableHtml += '<tr>';
+        tableHtml += '<th style="width:60%">Walkers</th>';
+        tableHtml += '<th style="width:40%">Scarer</th>';
+        tableHtml += '</tr>';
+        tableHtml += '<tr>';
+        // Walkers list as vertical list
+        tableHtml += '<td>';
+        if (walkers.length) {
+            tableHtml += '<ul>' + walkers.map(function(w) { return '<li>' + w + '</li>'; }).join('') + '</ul>';
+        } else {
+            tableHtml += '—';
+        }
+        tableHtml += '</td>';
+        // Scarer cell
+        tableHtml += '<td>' + scarer + '</td>';
+        tableHtml += '</tr>';
+        tableHtml += '</table>';
+        var infoBar = document.getElementById('roomInfoBar');
+        if (infoBar) infoBar.innerHTML = tableHtml;
+        window._lastRoomInfoPlayers = players; // debug
+    }
+    window.updateRoomInfo = updateRoomInfo;
+    </script>
     <script src="game.js"></script>
+    <script>
+    // Robustly patch renderGameState only after game.js is loaded and the function is defined
+    (function patchRenderGameStateWhenReady() {
+        function doPatch() {
+            if (typeof window.renderGameState === 'function' && !window.renderGameState._roomInfoPatched) {
+                var origRenderGameState = window.renderGameState;
+                window.renderGameState = function(payload) {
+                    origRenderGameState.call(this, payload);
+                    if (payload && payload.players) window.updateRoomInfo(payload.players);
+                };
+                window.renderGameState._roomInfoPatched = true;
+                // Initial info bar update
+                if (window.gameState && window.gameState.players) {
+                    window.updateRoomInfo(window.gameState.players);
+                }
+                // Also update after 1s in case of async join
+                setTimeout(function() {
+                    if (window.gameState && window.gameState.players) {
+                        window.updateRoomInfo(window.gameState.players);
+                    }
+                }, 1000);
+                console.log('[patchRenderGameStateWhenReady] Patch applied.');
+            }
+        }
+        // Try immediately, then poll every 100ms until ready (max 3s)
+        let waited = 0;
+        const interval = setInterval(function() {
+            doPatch();
+            waited += 100;
+            if (window.renderGameState && window.renderGameState._roomInfoPatched) {
+                clearInterval(interval);
+            } else if (waited > 3000) {
+                clearInterval(interval);
+                console.warn('[patchRenderGameStateWhenReady] Timed out waiting for renderGameState.');
+            }
+        }, 100);
+    })();
+    </script>
 </body>
 </html>
