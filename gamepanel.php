@@ -89,6 +89,12 @@ $instanceId = $_GET['instance'] ?? '';
         <?php endif; ?>
         <section class="card">
             <h2>Gameplay</h2>
+            <audio id="booSound" src="https://cdn.pixabay.com/audio/2022/10/16/audio_12b6b2b2b2.mp3" preload="auto"></audio>
+            <?php if ($isScarer): ?>
+            <div id="soulCounterBar" style="margin:10px 0 0 0;padding:8px 18px;background:#23244a;border-radius:10px;display:inline-block;font-size:1.1rem;">
+                <span>Souls Collected: <span id="soulCounter">0</span></span>
+            </div>
+            <?php endif; ?>
             <button type="button" onclick="if(confirm('Are you sure you want to leave the game?')) window.location.href='lobby.php'" style="float:right;margin-top:-8px;margin-right:-8px;background:#374151;color:#fff;">Leave</button>
             <div id="gamePath">
                 <div id="pathTrack"></div>

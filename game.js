@@ -724,6 +724,95 @@ document.addEventListener('click', function(event) {
   });
 
 
-// ...existing code...
+// --- Scare/Fatal Scare/Soul Logic ---
+let soulCounter = 0;
+function playBooSound() {
+  const audio = document.getElementById('booSound');
+  if (audio) {
+    audio.currentTime = 0;
+    audio.play();
+  }
+}
+function updateSoulCounter() {
+  const el = document.getElementById('soulCounter');
+  if (el) el.textContent = soulCounter;
+}
+function getNearbyWalker() {
+  // Returns the peerId of a walker in proximity, not frozen (for scare) or frozen (for fatal)
+  const host = hostState.position;
+  for (const [peerId, p] of Object.entries(gameState.players)) {
+    if (peerId === 'host' || p.role !== 'walker') continue;
+    const dx = host.x - p.x;
+    const dy = host.y - p.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < PROXIMITY_DISTANCE) {
+      return { peerId, player: p };
+    }
+  }
+  return null;
+}
+
+if (isGameplayPage() && window.SCARER_USER_ID) {
+  window.addEventListener('keydown', function(e) {
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    // 'q' = scare, 'w' = fatal scare
+    if (e.key === 'q') {
+      const target = getNearbyWalker();
+      if (target && !target.player.frozen) {
+        // Increment scareCount
+        target.player.scareCount = (target.player.scareCount || 0) + 1;
+        if (target.player.scareCount >= 3) {
+          target.player.frozen = true;
+        }
+        playBooSound();
+        // Send update to walker (and all peers)
+        gameState.players[target.peerId] = { ...target.player };
+        renderGameState({ players: gameState.players });
+        broadcastHostState();
+      }
+    }
+    if (e.key === 'w') {
+      const target = getNearbyWalker();
+      if (target && target.player.frozen) {
+        // Remove walker, increment soul counter
+        delete gameState.players[target.peerId];
+        soulCounter++;
+        updateSoulCounter();
+        renderGameState({ players: gameState.players });
+        broadcastHostState();
+      }
+    }
+  });
+}
+
+// Patch renderPlayerLayer to show frozen walkers visually
+const origRenderPlayerLayer = renderPlayerLayer;
+renderPlayerLayer = function(players) {
+  origRenderPlayerLayer(players);
+  // Add freeze effect
+  const layer = document.getElementById('playerLayer');
+  if (!layer) return;
+  for (const peerId in players) {
+    const p = players[peerId];
+    if (p.role === 'walker' && p.frozen) {
+      // Find avatar
+      const avatars = layer.getElementsByClassName('player-avatar');
+      for (const avatar of avatars) {
+        if (avatar.dataset.label === 'W' && avatar.style.left && avatar.style.top) {
+          // Add freeze overlay
+          avatar.style.filter = 'grayscale(1) brightness(0.7)';
+          avatar.title = 'Frozen in fright!';
+        }
+      }
+    }
+  }
+};
+
+// Patch renderGameState to update soul counter for scarer
+const origRenderGameState = window.renderGameState;
+window.renderGameState = function(payload) {
+  origRenderGameState.call(this, payload);
+  if (window.SCARER_USER_ID) updateSoulCounter();
+};
 
 
