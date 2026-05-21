@@ -6,6 +6,18 @@ $isScarer = isset($_SESSION['user_id']) && $_SESSION['role'] === 'scarer';
 $scarerName = $_SESSION['username'] ?? '';
 $roomId = $_GET['room'] ?? '';
 $instanceId = $_GET['instance'] ?? '';
+
+$scarerAbilitySounds = [];
+foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
+    $scarerAbilitySounds[$ability] = [];
+    $dir = __DIR__ . "/assets/sound_effects/scarer/{$ability}";
+    if (is_dir($dir)) {
+        foreach (glob($dir . '/*.{mp3,wav}', GLOB_BRACE) as $filePath) {
+            $scarerAbilitySounds[$ability][] = 'assets/sound_effects/scarer/' . $ability . '/' . basename($filePath);
+        }
+        sort($scarerAbilitySounds[$ability], SORT_NATURAL);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -89,7 +101,7 @@ $instanceId = $_GET['instance'] ?? '';
         <?php endif; ?>
         <section class="card">
             <h2>Gameplay</h2>
-            <audio id="booSound" src="https://cdn.pixabay.com/audio/2022/10/16/audio_12b6b2b2b2.mp3" preload="auto"></audio>
+            <audio id="booSound" src="" preload="auto"></audio>
             <?php if ($isScarer): ?>
             <div id="soulCounterBar" style="margin:10px 0 0 0;padding:8px 18px;background:#23244a;border-radius:10px;display:inline-block;font-size:1.1rem;">
                 <span>Souls Collected: <span id="soulCounter">0</span></span>
@@ -122,6 +134,7 @@ $instanceId = $_GET['instance'] ?? '';
         window.WALKER_USERNAME = <?= !$isScarer && isset($_SESSION['username']) ? json_encode($_SESSION['username']) : 'null' ?>;
         window.GAME_INSTANCE_ID = <?= $instanceId ? (int)$instanceId : 0 ?>;
         window.GAME_ROOM_ID = <?= $roomId ? json_encode($roomId) : 'null' ?>;
+        window.SCARER_ABILITY_SOUNDS = <?= json_encode($scarerAbilitySounds) ?>;
     </script>
     <style>
     #roomInfoTable {

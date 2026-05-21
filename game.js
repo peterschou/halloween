@@ -11,6 +11,19 @@ const SAFE_ZONE_X = 12; // Walkers start at x=5, safe zone is x<=12
 const WALKER_START_X = 5;
 const SCARER_START_X = 95;
 const PROXIMITY_DISTANCE = 14;
+const SCARER_ABILITY_SOUNDS = (window.SCARER_ABILITY_SOUNDS && typeof window.SCARER_ABILITY_SOUNDS === 'object')
+  ? window.SCARER_ABILITY_SOUNDS
+  : {
+      ability1: [
+        'assets/sound_effects/scarer/ability1/scare1.wav',
+        'assets/sound_effects/scarer/ability1/scare2.wav',
+        'assets/sound_effects/scarer/ability1/scare3.wav',
+        'assets/sound_effects/scarer/ability1/scare4.wav',
+      ],
+      ability2: [],
+      ability3: [],
+      ability4: [],
+    };
 const peerConnections = new Map();
 const pendingHostIce = new Map();
 let hostState = {
@@ -736,12 +749,21 @@ document.addEventListener('click', function(event) {
 
 // --- Scare/Fatal Scare/Soul Logic ---
 let soulCounter = 0;
-function playBooSound() {
+function playBooSound(ability = 'ability1') {
   const audio = document.getElementById('booSound');
+  const sources = SCARER_ABILITY_SOUNDS[ability] || SCARER_ABILITY_SOUNDS.ability1 || [];
+  if (!sources || !sources.length) return;
+  const randomSource = sources[Math.floor(Math.random() * sources.length)];
   if (audio) {
+    audio.src = randomSource;
     audio.currentTime = 0;
-    audio.play();
+    audio.play().catch(() => {
+      // Swallow playback errors while user interaction is required.
+    });
+    return;
   }
+  const fallback = new Audio(randomSource);
+  fallback.play().catch(() => {});
 }
 function updateSoulCounter() {
   const el = document.getElementById('soulCounter');
@@ -774,7 +796,7 @@ if (isGameplayPage() && window.SCARER_USER_ID) {
         if (target.player.scareCount >= 3) {
           target.player.frozen = true;
         }
-        playBooSound();
+        playBooSound('ability1');
         // Send update to walker (and all peers)
         gameState.players[target.peerId] = { ...target.player };
         renderGameState({ players: gameState.players });
@@ -784,6 +806,7 @@ if (isGameplayPage() && window.SCARER_USER_ID) {
     if (e.key === 'w') {
       const target = getNearbyWalker();
       if (target && target.player.frozen) {
+        playBooSound('ability2');
         // Respawn walker in the safe zone after fatal scare
         const respawnedWalker = {
           ...target.player,
