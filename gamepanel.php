@@ -54,6 +54,40 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
     </style>
 </head>
 <body>
+    <!-- D-pad overlay for mobile/tablet movement (always visible, for all roles) -->
+    <div id="dpadOverlay" style="position:fixed;left:32px;bottom:32px;transform:none;z-index:1000;display:flex;flex-direction:column;align-items:center;gap:0.5em;user-select:none;touch-action:none;">
+        <button class="dpad-btn" data-dir="up" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">▲</button>
+        <div style="display:flex;gap:0.5em;">
+            <button class="dpad-btn" data-dir="left" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">◀</button>
+            <button class="dpad-btn" data-dir="down" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">▼</button>
+            <button class="dpad-btn" data-dir="right" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">▶</button>
+        </div>
+    </div>
+    <script>
+    // D-pad movement for touch devices
+    function dpadMove(dir) {
+        switch(dir) {
+            case 'up': window.sendMovement(0, -4); break;
+            case 'down': window.sendMovement(0, 4); break;
+            case 'left': window.sendMovement(-4, 0); break;
+            case 'right': window.sendMovement(4, 0); break;
+        }
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.dpad-btn').forEach(function(btn) {
+            btn.addEventListener('touchstart', function(e) {
+                e.preventDefault();
+                dpadMove(btn.dataset.dir);
+            });
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                dpadMove(btn.dataset.dir);
+            });
+        });
+        // Always show D-pad
+        document.getElementById('dpadOverlay').style.display = 'flex';
+    });
+    </script>
     <div class="page">
         <header class="card">
             <h1><?= htmlspecialchars(SITE_TITLE) ?> Gameplay</h1>
@@ -108,6 +142,7 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
             </div>
             <?php endif; ?>
             <button type="button" onclick="if(confirm('Are you sure you want to leave the game?')) window.location.href='lobby.php'" style="float:right;margin-top:-8px;margin-right:-8px;background:#374151;color:#fff;">Leave</button>
+            <button id="muteToggle" onclick="window.toggleMute()" style="float:right;margin-top:-8px;margin-right:8px;background:#374151;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;" title="Toggle Mute">🔊</button>
             <div id="gamePath">
                 <div id="pathTrack"></div>
                 <div id="playerLayer"></div>

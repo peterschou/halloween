@@ -44,6 +44,33 @@ let localPeerState = {
   pendingIce: [],
   joinTimeout: null,
 };
+
+// --- Sound & Mute Logic ---
+let isMuted = localStorage.getItem('scarePathMuted') === 'true';
+
+window.toggleMute = function() {
+  isMuted = !isMuted;
+  localStorage.setItem('scarePathMuted', isMuted);
+  const btn = document.getElementById('muteToggle');
+  if (btn) btn.textContent = isMuted ? '🔇' : '🔊';
+};
+
+function playBooSound(ability = 'ability1') {
+  if (isMuted) return;
+  const audio = document.getElementById('booSound');
+  const sources = SCARER_ABILITY_SOUNDS[ability] || SCARER_ABILITY_SOUNDS.ability1 || [];
+  if (!sources || !sources.length) return;
+  const randomSource = sources[Math.floor(Math.random() * sources.length)];
+  if (audio) {
+    audio.src = randomSource;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+    return;
+  }
+  const fallback = new Audio(randomSource);
+  fallback.play().catch(() => {});
+}
+
 const gameState = { players: {}, scare: null };
 
 function genPeerId() {
@@ -559,6 +586,7 @@ function handlePeerMessage(rawData) {
   }
   if (msg.type === 'scare') {
     displayScare(msg.payload.effect);
+    playBooSound(msg.payload.ability || 'ability1');
   }
 }
 
@@ -635,7 +663,7 @@ function clampMovement(value, role, axis, currentX) {
 
 async function sendScare(effect) {
   if (!hostState.instanceId || !hostState.hostPeerId) return;
-  const eventData = JSON.stringify({ type: 'scare', payload: { effect } });
+  const eventData = JSON.stringify({ type: 'scare', payload: { effect, ability: 'ability1' } });
   peerConnections.forEach(({ channel }) => {
     if (channel && channel.readyState === 'open') {
       channel.send(eventData);
@@ -721,6 +749,10 @@ if (isGameplayPage()) {
     updateConnectionBadge('error');
   }
 
+  // Initialize mute button state
+  const muteBtn = document.getElementById('muteToggle');
+  if (muteBtn) muteBtn.textContent = isMuted ? '🔇' : '🔊';
+
   // Add arrow key movement for both host and walkers
   window.addEventListener('keydown', function(e) {
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
@@ -749,7 +781,17 @@ document.addEventListener('click', function(event) {
 
 // --- Scare/Fatal Scare/Soul Logic ---
 let soulCounter = 0;
+//let isMuted = localStorage.getItem('scarePathMuted') === 'true';
+
+window.toggleMute = function() {
+  isMuted = !isMuted;
+  localStorage.setItem('scarePathMuted', isMuted);
+  const btn = document.getElementById('muteToggle');
+  if (btn) btn.textContent = isMuted ? '🔇' : '🔊';
+};
+
 function playBooSound(ability = 'ability1') {
+  if (isMuted) return;
   const audio = document.getElementById('booSound');
   const sources = SCARER_ABILITY_SOUNDS[ability] || SCARER_ABILITY_SOUNDS.ability1 || [];
   if (!sources || !sources.length) return;
@@ -797,6 +839,16 @@ if (isGameplayPage() && window.SCARER_USER_ID) {
           target.player.frozen = true;
         }
         playBooSound('ability1');
+
+        // Notify the specific walker so they play the sound
+        const record = peerConnections.get(target.peerId);
+        if (record && record.channel && record.channel.readyState === 'open') {
+          record.channel.send(JSON.stringify({
+            type: 'scare',
+            payload: { effect: 'BOO!', ability: 'ability1' }
+          }));
+        }
+
         // Send update to walker (and all peers)
         gameState.players[target.peerId] = { ...target.player };
         renderGameState({ players: gameState.players });
@@ -807,6 +859,16 @@ if (isGameplayPage() && window.SCARER_USER_ID) {
       const target = getNearbyWalker();
       if (target && target.player.frozen) {
         playBooSound('ability2');
+
+        // Notify the specific walker so they play the sound
+        const record = peerConnections.get(target.peerId);
+        if (record && record.channel && record.channel.readyState === 'open') {
+          record.channel.send(JSON.stringify({
+            type: 'scare',
+            payload: { effect: 'SOUL TAKEN!', ability: 'ability2' }
+          }));
+        }
+
         // Respawn walker in the safe zone after fatal scare
         const respawnedWalker = {
           ...target.player,
@@ -855,5 +917,3 @@ window.renderGameState = function(payload) {
   origRenderGameState.call(this, payload);
   if (window.SCARER_USER_ID) updateSoulCounter();
 };
-
-
