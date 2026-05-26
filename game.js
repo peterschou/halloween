@@ -780,33 +780,7 @@ document.addEventListener('click', function(event) {
 
 
 // --- Scare/Fatal Scare/Soul Logic ---
-let soulCounter = 0;
-//let isMuted = localStorage.getItem('scarePathMuted') === 'true';
-
-window.toggleMute = function() {
-  isMuted = !isMuted;
-  localStorage.setItem('scarePathMuted', isMuted);
-  const btn = document.getElementById('muteToggle');
-  if (btn) btn.textContent = isMuted ? '🔇' : '🔊';
-};
-
-function playBooSound(ability = 'ability1') {
-  if (isMuted) return;
-  const audio = document.getElementById('booSound');
-  const sources = SCARER_ABILITY_SOUNDS[ability] || SCARER_ABILITY_SOUNDS.ability1 || [];
-  if (!sources || !sources.length) return;
-  const randomSource = sources[Math.floor(Math.random() * sources.length)];
-  if (audio) {
-    audio.src = randomSource;
-    audio.currentTime = 0;
-    audio.play().catch(() => {
-      // Swallow playback errors while user interaction is required.
-    });
-    return;
-  }
-  const fallback = new Audio(randomSource);
-  fallback.play().catch(() => {});
-}
+let soulCounter = 0
 function updateSoulCounter() {
   const el = document.getElementById('soulCounter');
   if (el) el.textContent = soulCounter;
