@@ -200,7 +200,9 @@ function renderPlayerLayer(players) {
     if (!player || typeof player.x !== 'number' || typeof player.y !== 'number') continue;
     const role = player.role || (peerId === 'host' ? 'host' : 'walker');
     const avatar = document.createElement('div');
-    avatar.className = `player-avatar ${role}` + (player.x <= SAFE_ZONE_X && role === 'walker' ? ' near' : '');
+    avatar.className = `player-avatar ${role}` + 
+                       (player.x <= SAFE_ZONE_X && role === 'walker' ? ' near' : '') +
+                       (player.frozen ? ' frozen' : '');
     avatar.style.left = `${Math.min(96, Math.max(2, player.x))}%`;
     avatar.style.top = `${Math.min(88, Math.max(2, player.y))}%`;
     avatar.dataset.label = role === 'host' ? 'H' : 'W';
@@ -780,24 +782,25 @@ document.addEventListener('click', function(event) {
 
 
 // --- Scare/Fatal Scare/Soul Logic ---
-let soulCounter = 0
+let soulCounter = 0;
 function updateSoulCounter() {
   const el = document.getElementById('soulCounter');
   if (el) el.textContent = soulCounter;
 }
-function getNearbyWalker() {
-  // Returns the peerId of a walker in proximity, not frozen (for scare) or frozen (for fatal)
+function getNearbyWalkers() {
+  // Returns an array of walkers in proximity
   const host = hostState.position;
+  const nearby = [];
   for (const [peerId, p] of Object.entries(gameState.players)) {
     if (peerId === 'host' || p.role !== 'walker') continue;
     const dx = host.x - p.x;
     const dy = host.y - p.y;
     const dist = Math.sqrt(dx*dx + dy*dy);
     if (dist < PROXIMITY_DISTANCE) {
-      return { peerId, player: p };
+      nearby.push({ peerId, player: p });
     }
   }
-  return null;
+  return nearby;
 }
 
 if (isGameplayPage() && window.SCARER_USER_ID) {
@@ -805,33 +808,43 @@ if (isGameplayPage() && window.SCARER_USER_ID) {
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
     // 'q' = scare, 'w' = fatal scare
     if (e.key === 'q') {
-      const target = getNearbyWalker();
-      if (target && !target.player.frozen) {
-        // Increment scareCount
-        target.player.scareCount = (target.player.scareCount || 0) + 1;
-        if (target.player.scareCount >= 3) {
-          target.player.frozen = true;
+      const targets = getNearbyWalkers();
+      let hitAny = false;
+      
+      targets.forEach(target => {
+        if (!target.player.frozen) {
+          hitAny = true;
+          // Increment scareCount
+          target.player.scareCount = (target.player.scareCount || 0) + 1;
+          if (target.player.scareCount >= 3) {
+            target.player.frozen = true;
+          }
+
+          // Notify the specific walker so they play the sound
+          const record = peerConnections.get(target.peerId);
+          if (record && record.channel && record.channel.readyState === 'open') {
+            record.channel.send(JSON.stringify({
+              type: 'scare',
+              payload: { effect: 'BOO!', ability: 'ability1' }
+            }));
+          }
+
+          // Update local state
+          gameState.players[target.peerId] = { ...target.player };
         }
+      });
+
+      if (hitAny) {
         playBooSound('ability1');
-
-        // Notify the specific walker so they play the sound
-        const record = peerConnections.get(target.peerId);
-        if (record && record.channel && record.channel.readyState === 'open') {
-          record.channel.send(JSON.stringify({
-            type: 'scare',
-            payload: { effect: 'BOO!', ability: 'ability1' }
-          }));
-        }
-
-        // Send update to walker (and all peers)
-        gameState.players[target.peerId] = { ...target.player };
         renderGameState({ players: gameState.players });
         broadcastHostState();
       }
     }
     if (e.key === 'w') {
-      const target = getNearbyWalker();
-      if (target && target.player.frozen) {
+      const targets = getNearbyWalkers();
+      // Fatal scare targets one frozen walker at a time
+      const target = targets.find(t => t.player.frozen);
+      if (target) {
         playBooSound('ability2');
 
         // Notify the specific walker so they play the sound
@@ -861,29 +874,6 @@ if (isGameplayPage() && window.SCARER_USER_ID) {
     }
   });
 }
-
-// Patch renderPlayerLayer to show frozen walkers visually
-const origRenderPlayerLayer = renderPlayerLayer;
-renderPlayerLayer = function(players) {
-  origRenderPlayerLayer(players);
-  // Add freeze effect
-  const layer = document.getElementById('playerLayer');
-  if (!layer) return;
-  for (const peerId in players) {
-    const p = players[peerId];
-    if (p.role === 'walker' && p.frozen) {
-      // Find avatar
-      const avatars = layer.getElementsByClassName('player-avatar');
-      for (const avatar of avatars) {
-        if (avatar.dataset.label === 'W' && avatar.style.left && avatar.style.top) {
-          // Add freeze overlay
-          avatar.style.filter = 'grayscale(1) brightness(0.7)';
-          avatar.title = 'Frozen in fright!';
-        }
-      }
-    }
-  }
-};
 
 // Patch renderGameState to update soul counter for scarer
 const origRenderGameState = window.renderGameState;
