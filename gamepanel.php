@@ -287,6 +287,7 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
             closeBtn.onclick = async function() {
                 if (!window.GAME_INSTANCE_ID) { alert('No game instance.'); return; }
                 if (!confirm('Are you sure you want to close this game?')) return;
+                if (window.notifyPeersGameClosed) window.notifyPeersGameClosed();
                 closeBtn.disabled = true;
                 closeBtn.textContent = 'Closing...';
                 try {

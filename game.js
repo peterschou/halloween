@@ -47,6 +47,21 @@ let localPeerState = {
 
 // --- Sound & Mute Logic ---
 let isMuted = localStorage.getItem('scarePathMuted') === 'true';
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      debug('Wake Lock active: screen will stay on.');
+    } catch (err) {
+      debug('Wake Lock error:', err.message);
+    }
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
+});
 
 window.toggleMute = function() {
   isMuted = !isMuted;
@@ -247,6 +262,7 @@ async function initHost(roomId) {
   if (hostState.instanceId) {
     debug('Host polling loop starting', { instanceId: hostState.instanceId });
     hostState.polling = true;
+    requestWakeLock();
     pollHostSignals();
     setInterval(pollHostSignals, 1500);
   }
@@ -394,6 +410,11 @@ async function initPeer(roomId) {
       clearTimeout(localPeerState.joinTimeout);
       // Force info bar update on connect
       renderGameState({ players: gameState.players });
+    } else if (localPeerState.pc.connectionState === 'disconnected' || 
+               localPeerState.pc.connectionState === 'failed' || 
+               localPeerState.pc.connectionState === 'closed') {
+      debug('Peer connection lost, returning to lobby.');
+      window.location.href = 'lobby.php';
     }
   };
   localPeerState.channel = localPeerState.pc.createDataChannel('scarepath');
@@ -404,6 +425,10 @@ async function initPeer(roomId) {
     updatePathUI();
     // Force info bar update on data channel open
     renderGameState({ players: gameState.players });
+  };
+  localPeerState.channel.onclose = () => {
+    debug('Data channel closed, returning to lobby.');
+    window.location.href = 'lobby.php';
   };
   localPeerState.channel.onmessage = event => handlePeerMessage(event.data);
   localPeerState.pc.onicecandidate = async event => {
@@ -435,8 +460,19 @@ async function initPeer(roomId) {
     }
   }, 12000);
   localPeerState.polling = true;
+  requestWakeLock();
   pollPeerSignals();
   setInterval(pollPeerSignals, 1500);
+
+  // Send periodic heartbeat to host
+  setInterval(() => {
+    if (localPeerState.channel && localPeerState.channel.readyState === 'open') {
+      const p = gameState.players[localPeerState.peerId];
+      if (p) {
+        localPeerState.channel.send(JSON.stringify({ type: 'heartbeat', payload: p }));
+      }
+    }
+  }, 5000);
 }
 
 async function createOfferToHost() {
@@ -527,7 +563,7 @@ function handleHostMessage(peerId, rawData) {
   } catch (err) {
     return;
   }
-  if (msg.type === 'movement') {
+  if (msg.type === 'movement' || msg.type === 'heartbeat') {
     // Ignore movement from frozen walkers.
     const existingPlayer = gameState.players[peerId];
     if (existingPlayer && existingPlayer.role === 'walker' && existingPlayer.frozen) {
@@ -539,6 +575,8 @@ function handleHostMessage(peerId, rawData) {
       msg.payload.username = window.WALKER_USERNAME || peerId;
     }
     gameState.players[peerId] = msg.payload;
+    gameState.players[peerId].lastSeen = Date.now();
+
     // Ensure host is always present in player list
     if (hostState.hostPeerId && !gameState.players[hostState.hostPeerId]) {
       gameState.players[hostState.hostPeerId] = hostState.position;
@@ -576,6 +614,18 @@ function broadcastHostState() {
   });
 }
 
+window.notifyPeersGameClosed = function() {
+  debug('Broadcasting gameClosed signal to all peers.');
+  const message = JSON.stringify({ type: 'gameClosed' });
+  peerConnections.forEach(({ channel }) => {
+    if (channel && channel.readyState === 'open') {
+      try {
+        channel.send(message);
+      } catch (e) { console.warn('Failed to send gameClosed', e); }
+    }
+  });
+};
+
 function handlePeerMessage(rawData) {
   let msg;
   try {
@@ -589,6 +639,10 @@ function handlePeerMessage(rawData) {
   if (msg.type === 'scare') {
     displayScare(msg.payload.effect);
     playBooSound(msg.payload.ability || 'ability1');
+  }
+  if (msg.type === 'gameClosed') {
+    debug('Received gameClosed from host.');
+    window.location.href = 'lobby.php';
   }
 }
 
@@ -787,6 +841,36 @@ function updateSoulCounter() {
   const el = document.getElementById('soulCounter');
   if (el) el.textContent = soulCounter;
 }
+
+function cleanupStalePlayers() {
+  if (hostState.hostPeerId !== 'host') return;
+  const now = Date.now();
+  const STALE_TIMEOUT = 15000; // 15 seconds
+  let changed = false;
+
+  for (const peerId in gameState.players) {
+    if (peerId === 'host' || peerId === hostState.hostPeerId) continue;
+    const p = gameState.players[peerId];
+    if (p.lastSeen && (now - p.lastSeen > STALE_TIMEOUT)) {
+      debug('Removing stale player:', peerId);
+      delete gameState.players[peerId];
+      const record = peerConnections.get(peerId);
+      if (record && record.pc) record.pc.close();
+      peerConnections.delete(peerId);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    renderGameState({ players: gameState.players });
+    broadcastHostState();
+  }
+}
+
+if (window.SCARER_USER_ID) {
+  setInterval(cleanupStalePlayers, 5000);
+}
+
 function getNearbyWalkers() {
   // Returns an array of walkers in proximity
   const host = hostState.position;
