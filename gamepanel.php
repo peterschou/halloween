@@ -40,6 +40,17 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
         .player-avatar.near { border: 2px solid #facc15; box-shadow: 0 0 18px rgba(250,204,21,.8); }
         .player-avatar::after { content: attr(data-label); position: absolute; top: -18px; left: 50%; transform: translateX(-50%); color: #eef; font-size: 0.7rem; white-space: nowrap; }
         .player-avatar.frozen { filter: grayscale(1) brightness(0.7); }
+        /* Guardian Light Aura */
+        .player-avatar.has-aura::before {
+            content: '';
+            position: absolute;
+            width: 120px; height: 120px;
+            background: radial-gradient(circle, rgba(250, 204, 21, 0.4) 0%, rgba(250, 204, 21, 0) 70%);
+            border: 2px solid rgba(250, 204, 21, 0.3);
+            border-radius: 50%;
+            animation: pulse-aura 2s infinite;
+        }
+        @keyframes pulse-aura { 0% { transform: scale(0.9); opacity: 0.5; } 50% { transform: scale(1.1); opacity: 0.8; } 100% { transform: scale(0.9); opacity: 0.5; } }
         #playerMarker { display: none; }
         #scareOverlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; color: #fff; font-size: 2rem; opacity: 0; transition: opacity .2s ease; text-shadow: 0 0 20px #ff2471, 0 0 80px rgba(255,36,113,.3); }
         #scareOverlay.active { opacity: 1; }
@@ -69,11 +80,19 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
         .dpad-row { display: flex; gap: 4px; }
         .dpad-btn { width: 42px; height: 42px; font-size: 1.2rem; border-radius: 8px; border: none; background: #23244a; color: #fff; cursor: pointer; }
         
-        #abilityButtons, #scareEffectButtons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-        #abilityButtons button, #scareEffectButtons button {
-            padding: 10px 14px; font-size: 0.85rem; border-radius: 8px;
-            background: #4f46e5; color: #fff; border: none; cursor: pointer; white-space: nowrap;
+        .ability-group { display: flex; gap: 10px; align-items: flex-end; }
+        .ability-slot { display: flex; flex-direction: column; align-items: center; }
+        .key-hint { font-size: 0.7rem; color: #a5b4fc; font-weight: 800; margin-bottom: 2px; text-transform: uppercase; }
+        .ability-btn {
+            width: 46px; height: 46px; border-radius: 10px;
+            background: #4f46e5; color: #fff; border: none; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
+            transition: filter 0.2s, opacity 0.2s, transform 0.1s;
         }
+        .ability-btn:active { transform: scale(0.95); }
+        .ability-btn.cooldown { filter: grayscale(1); opacity: 0.4; cursor: not-allowed; }
+        #scareEffectButtons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        #scareEffectButtons button { padding: 10px 14px; font-size: 0.85rem; border-radius: 8px; background: #dc2626; color: #fff; border: none; cursor: pointer; }
         #scareEffectButtons button { background: #dc2626; }
         #closeGameBtn { background: #7f1d1d !important; }
 
@@ -121,16 +140,49 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
                 </div>
 
                 <?php if ($isScarer): ?>
-                <div id="abilityButtons">
-                    <button type="button" onclick="sendScare('Ability Q', 'ability1')">Q</button>
-                    <button type="button" onclick="sendScare('Ability W', 'ability2')">W</button>
-                    <button type="button" onclick="sendScare('Ability E', 'ability3')">E</button>
-                    <button type="button" onclick="sendScare('Ability R', 'ability4')">R</button>
+                <div id="abilityButtons" class="ability-group">
+                    <div class="ability-slot">
+                        <div class="key-hint">Q</div>
+                        <button type="button" class="ability-btn" id="scarer-btn-q" onclick="window.triggerScarerAbility('q')">👻</button>
+                    </div>
+                    <div class="ability-slot">
+                        <div class="key-hint">W</div>
+                        <button type="button" class="ability-btn" id="scarer-btn-w" onclick="window.triggerScarerAbility('w')">💀</button>
+                    </div>
+                    <div class="ability-slot">
+                        <div class="key-hint">E</div>
+                        <button type="button" class="ability-btn" id="scarer-btn-e" onclick="window.triggerScarerAbility('e')">❄️</button>
+                    </div>
+                    <div class="ability-slot">
+                        <div class="key-hint">R</div>
+                        <button type="button" class="ability-btn" id="scarer-btn-r" onclick="window.triggerScarerAbility('r')">⚡</button>
+                    </div>
                 </div>
                 <div id="scareEffectButtons">
                     <button type="button" onclick="sendScare('Spectral Chill', 'ability1')">Chill</button>
                     <button type="button" onclick="sendScare('Flashbang Fear', 'ability1')">Flash</button>
                     <button type="button" onclick="sendScare('Ghostly Whisper', 'ability1')">Whisper</button>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!$isScarer): ?>
+                <div id="walkerAbilityButtons" class="ability-group">
+                    <div class="ability-slot">
+                        <div class="key-hint">Q</div>
+                        <button type="button" class="ability-btn" id="walker-btn-q" style="background:#facc15;" onclick="window.activateWalkerAbility('q')">🛡️</button>
+                    </div>
+                    <div class="ability-slot">
+                        <div class="key-hint">W</div>
+                        <button type="button" class="ability-btn" id="walker-btn-w" onclick="window.activateWalkerAbility('w')">🏃</button>
+                    </div>
+                    <div class="ability-slot">
+                        <div class="key-hint">E</div>
+                        <button type="button" class="ability-btn" id="walker-btn-e" onclick="window.activateWalkerAbility('e')">👁️</button>
+                    </div>
+                    <div class="ability-slot">
+                        <div class="key-hint">R</div>
+                        <button type="button" class="ability-btn" id="walker-btn-r" onclick="window.activateWalkerAbility('r')">🕯️</button>
+                    </div>
                 </div>
                 <?php endif; ?>
             </div>

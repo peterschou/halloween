@@ -11,6 +11,9 @@ const SAFE_ZONE_X = 12; // Walkers start at x=5, safe zone is x<=12
 const WALKER_START_X = 5;
 const SCARER_START_X = 95;
 const PROXIMITY_DISTANCE = 14;
+const GUARDIAN_DURATION = 5000; // 5 seconds of light
+const GUARDIAN_COOLDOWN = 15000; // 15 second cooldown
+
 const SCARER_ABILITY_SOUNDS = (window.SCARER_ABILITY_SOUNDS && typeof window.SCARER_ABILITY_SOUNDS === 'object')
   ? window.SCARER_ABILITY_SOUNDS
   : {
@@ -33,6 +36,7 @@ let hostState = {
   polling: false,
   connectedPeers: new Set(),
   position: { x: 10, y: 10, role: 'host' },
+  cooldowns: {},
 };
 let localPeerState = {
   instanceId: null,
@@ -217,7 +221,8 @@ function renderPlayerLayer(players) {
     const avatar = document.createElement('div');
     avatar.className = `player-avatar ${role}` + 
                        (player.x <= SAFE_ZONE_X && role === 'walker' ? ' near' : '') +
-                       (player.frozen ? ' frozen' : '');
+                       (player.frozen ? ' frozen' : '') +
+                       (player.abilities?.guardianActive ? ' has-aura' : '');
     avatar.style.left = `${Math.min(96, Math.max(2, player.x))}%`;
     avatar.style.top = `${Math.min(88, Math.max(2, player.y))}%`;
     avatar.dataset.label = role === 'host' ? 'H' : 'W';
@@ -581,6 +586,10 @@ function handleHostMessage(peerId, rawData) {
     if (hostState.hostPeerId && !gameState.players[hostState.hostPeerId]) {
       gameState.players[hostState.hostPeerId] = hostState.position;
     }
+
+    // Repel host from walker auras if a walker just moved or activated their light
+    resolveHostAuraCollision();
+
     renderGameState({ players: gameState.players });
     broadcastHostState();
   }
@@ -626,6 +635,49 @@ window.notifyPeersGameClosed = function() {
   });
 };
 
+function updateAbilityUI() {
+  const isScarer = !!window.SCARER_USER_ID;
+  const keys = ['q', 'w', 'e', 'r'];
+  if (isScarer) {
+    keys.forEach(k => {
+      const btn = document.getElementById(`scarer-btn-${k}`);
+      if (btn) btn.classList.toggle('cooldown', (hostState.cooldowns[k] || 0) > Date.now());
+    });
+  } else {
+    const self = gameState.players[localPeerState.peerId];
+    if (self) {
+      keys.forEach(k => {
+        const btn = document.getElementById(`walker-btn-${k}`);
+        const cd = k === 'q' ? (self.abilities?.guardianCooldown || 0) : 0;
+        if (btn) btn.classList.toggle('cooldown', cd > Date.now());
+      });
+    }
+  }
+}
+setInterval(updateAbilityUI, 100);
+
+window.activateWalkerAbility = function(key) {
+  if (key === 'q') {
+    const selfId = localPeerState.peerId;
+    const self = gameState.players[selfId];
+    if (!self || self.frozen) return;
+    if (self.abilities?.guardianCooldown > Date.now()) return;
+
+    self.abilities = self.abilities || {};
+    self.abilities.guardianActive = true;
+    self.abilities.guardianEnds = Date.now() + GUARDIAN_DURATION;
+    self.abilities.guardianCooldown = Date.now() + GUARDIAN_COOLDOWN;
+    
+    debug('Guardian Light activated!');
+    sendMovement(0, 0);
+    
+    setTimeout(() => {
+      self.abilities.guardianActive = false;
+      sendMovement(0, 0);
+    }, GUARDIAN_DURATION);
+  }
+};
+
 function handlePeerMessage(rawData) {
   let msg;
   try {
@@ -643,6 +695,11 @@ function handlePeerMessage(rawData) {
   if (msg.type === 'gameClosed') {
     debug('Received gameClosed from host.');
     window.location.href = 'lobby.php';
+  }
+  if (msg.type === 'walkerAbilityUpdate') {
+     const { peerId, abilities } = msg.payload;
+     if (gameState.players[peerId]) gameState.players[peerId].abilities = abilities;
+     broadcastHostState();
   }
 }
 
@@ -670,6 +727,11 @@ function sendMovement(deltaX, deltaY) {
   const selfRole = hostState.hostPeerId === 'host' && !localPeerState.peerId ? 'host' : 'walker';
   const current = selfId && gameState.players[selfId] ? gameState.players[selfId] : { x: 0, y: 0 };
 
+  // Cleanup expired abilities before sending
+  if (current.abilities && current.abilities.guardianEnds < Date.now()) {
+    current.abilities.guardianActive = false;
+  }
+
   if (selfRole === 'walker' && current.frozen) {
     return;
   }
@@ -688,6 +750,7 @@ function sendMovement(deltaX, deltaY) {
     timestamp: Date.now(),
     role: selfRole,
     username: username,
+    abilities: current.abilities || {}
   };
   const movement = { type: 'movement', payload };
 
@@ -704,10 +767,64 @@ function sendMovement(deltaX, deltaY) {
   }
 }
 
-function clampMovement(value, role, axis, currentX) {
-  if (role === 'host' && axis === 'x') {
-    // Scarer cannot enter safe zone
-    return Math.max(SAFE_ZONE_X + 1, Math.min(100, value));
+function isHostInWalkerAura(x, y) {
+  for (const id in gameState.players) {
+    const p = gameState.players[id];
+    if (p.role === 'walker' && p.abilities?.guardianActive) {
+      const dx = x - p.x;
+      const dy = y - p.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < PROXIMITY_DISTANCE) return true;
+    }
+  }
+  return false;
+}
+
+function resolveHostAuraCollision() {
+  if (hostState.hostPeerId !== 'host' || !hostState.position) return;
+  const host = hostState.position;
+  let moved = false;
+
+  for (const id in gameState.players) {
+    const p = gameState.players[id];
+    if (p.role === 'walker' && p.abilities?.guardianActive) {
+      const dx = host.x - p.x;
+      const dy = host.y - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < PROXIMITY_DISTANCE) {
+        // Push the host out to the boundary of the aura
+        const angle = dist === 0 ? Math.random() * Math.PI * 2 : Math.atan2(dy, dx);
+        host.x = p.x + Math.cos(angle) * PROXIMITY_DISTANCE;
+        host.y = p.y + Math.sin(angle) * PROXIMITY_DISTANCE;
+        moved = true;
+      }
+    }
+  }
+
+  if (moved) {
+    // Clamp new position to game bounds and safe zone
+    host.x = Math.max(SAFE_ZONE_X + 1, Math.min(100, host.x));
+    host.y = Math.max(0, Math.min(100, host.y));
+    gameState.players[hostState.hostPeerId] = host;
+  }
+}
+
+function clampMovement(value, role, axis, prevVal) {
+  const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
+  const current = selfId ? gameState.players[selfId] : { x: 0, y: 50 };
+
+  if (role === 'host') {
+    if (axis === 'x') {
+      const targetX = Math.max(SAFE_ZONE_X + 1, Math.min(100, value));
+      if (isHostInWalkerAura(targetX, current.y)) return prevVal;
+      return targetX;
+    }
+    if (axis === 'y') {
+      const targetY = Math.max(0, Math.min(100, value));
+      if (isHostInWalkerAura(current.x, targetY)) return prevVal;
+      return targetY;
+    }
   }
   if (role === 'walker' && axis === 'x') {
     // Walker can go anywhere
@@ -812,6 +929,15 @@ if (isGameplayPage()) {
   // Add arrow key movement for both host and walkers
   window.addEventListener('keydown', function(e) {
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+
+    const key = e.key.toLowerCase();
+    if (['q','w','e','r'].includes(key)) {
+      if (window.SCARER_USER_ID) window.triggerScarerAbility(key);
+      else window.activateWalkerAbility(key);
+      e.preventDefault();
+      return;
+    }
+
     let dx = 0, dy = 0;
     switch (e.key) {
       case 'ArrowLeft': dx = -4; break;
@@ -887,77 +1013,55 @@ function getNearbyWalkers() {
   return nearby;
 }
 
-if (isGameplayPage() && window.SCARER_USER_ID) {
-  window.addEventListener('keydown', function(e) {
-    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
-    // 'q' = scare, 'w' = fatal scare
-    if (e.key === 'q') {
-      const targets = getNearbyWalkers();
-      let hitAny = false;
-      
-      targets.forEach(target => {
-        if (!target.player.frozen) {
-          hitAny = true;
-          // Increment scareCount
-          target.player.scareCount = (target.player.scareCount || 0) + 1;
-          if (target.player.scareCount >= 3) {
-            target.player.frozen = true;
-          }
-
-          // Notify the specific walker so they play the sound
-          const record = peerConnections.get(target.peerId);
-          if (record && record.channel && record.channel.readyState === 'open') {
-            record.channel.send(JSON.stringify({
-              type: 'scare',
-              payload: { effect: 'BOO!', ability: 'ability1' }
-            }));
-          }
-
-          // Update local state
-          gameState.players[target.peerId] = { ...target.player };
-        }
-      });
-
-      if (hitAny) {
-        playBooSound('ability1');
-        renderGameState({ players: gameState.players });
-        broadcastHostState();
-      }
-    }
-    if (e.key === 'w') {
-      const targets = getNearbyWalkers();
-      // Fatal scare targets one frozen walker at a time
-      const target = targets.find(t => t.player.frozen);
-      if (target) {
-        playBooSound('ability2');
-
-        // Notify the specific walker so they play the sound
+window.triggerScarerAbility = function(key) {
+  if ((hostState.cooldowns[key] || 0) > Date.now()) return;
+  if (key === 'q') {
+    const targets = getNearbyWalkers();
+    let hitAny = false;
+    targets.forEach(target => {
+      if (!target.player.frozen) {
+        hitAny = true;
+        target.player.scareCount = (target.player.scareCount || 0) + 1;
+        if (target.player.scareCount >= 3) target.player.frozen = true;
         const record = peerConnections.get(target.peerId);
         if (record && record.channel && record.channel.readyState === 'open') {
           record.channel.send(JSON.stringify({
-            type: 'scare',
-            payload: { effect: 'SOUL TAKEN!', ability: 'ability2' }
+            type: 'scare', payload: { effect: 'BOO!', ability: 'ability1' }
           }));
         }
-
-        // Respawn walker in the safe zone after fatal scare
-        const respawnedWalker = {
-          ...target.player,
-          x: WALKER_START_X,
-          y: 50,
-          frozen: false,
-          scareCount: 0,
-          respawnedAt: Date.now(),
-        };
-        gameState.players[target.peerId] = respawnedWalker;
-        soulCounter++;
-        updateSoulCounter();
-        renderGameState({ players: gameState.players });
-        broadcastHostState();
+        gameState.players[target.peerId] = { ...target.player };
       }
+    });
+    if (hitAny) {
+      playBooSound('ability1');
+      hostState.cooldowns.q = Date.now() + 3000;
+      renderGameState({ players: gameState.players });
+      broadcastHostState();
     }
-  });
-}
+  }
+  if (key === 'w') {
+    const targets = getNearbyWalkers();
+    const target = targets.find(t => t.player.frozen);
+    if (target) {
+      playBooSound('ability2');
+      const record = peerConnections.get(target.peerId);
+      if (record && record.channel && record.channel.readyState === 'open') {
+        record.channel.send(JSON.stringify({
+          type: 'scare', payload: { effect: 'SOUL TAKEN!', ability: 'ability2' }
+        }));
+      }
+      gameState.players[target.peerId] = {
+        ...target.player, x: WALKER_START_X, y: 50,
+        frozen: false, scareCount: 0, respawnedAt: Date.now(),
+      };
+      soulCounter++;
+      hostState.cooldowns.w = Date.now() + 8000;
+      updateSoulCounter();
+      renderGameState({ players: gameState.players });
+      broadcastHostState();
+    }
+  }
+};
 
 // Patch renderGameState to update soul counter for scarer
 const origRenderGameState = window.renderGameState;
