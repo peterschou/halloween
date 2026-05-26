@@ -39,6 +39,7 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
         .player-avatar.walker { background: #14b8a6; box-shadow: 0 0 16px rgba(20,184,166,.75); }
         .player-avatar.near { border: 2px solid #facc15; box-shadow: 0 0 18px rgba(250,204,21,.8); }
         .player-avatar::after { content: attr(data-label); position: absolute; top: -18px; left: 50%; transform: translateX(-50%); color: #eef; font-size: 0.7rem; white-space: nowrap; }
+        .player-avatar.frozen { filter: grayscale(1) brightness(0.7); }
         #playerMarker { display: none; }
         #scareOverlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; color: #fff; font-size: 2rem; opacity: 0; transition: opacity .2s ease; text-shadow: 0 0 20px #ff2471, 0 0 80px rgba(255,36,113,.3); }
         #scareOverlay.active { opacity: 1; }
@@ -49,116 +50,103 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
         .status-badge.error { background: #7f1d1d; color: #fee2e2; }
         .status-badge.offline { background: #111827; color: #cbd5e1; }
         .debug-toggle { margin: 10px 0 0 0; cursor: pointer; color: #a5b4fc; background: none; border: none; font-size: 1rem; text-align: left; }
-        #debugPanel { display: none; }
+        #debugPanel { display: none; margin-top: 24px; }
         #debugPanel.open { display: block; }
+
+        /* New styles for compact layout */
+        html, body { height: 100%; overflow: hidden; }
+        .page.game-container { display: flex; flex-direction: column; height: 100vh; max-width: 100%; padding: 0; }
+        .main-game-card { flex: 1; display: flex; flex-direction: column; border-radius: 0; margin: 0; border: none; }
+        #gamePath { flex: 1; min-height: 100px; margin-top: 10px; }
+        
+        #gameControls {
+            display: flex; align-items: center; justify-content: flex-start; gap: 15px;
+            padding: 15px; background: #13162a; border-top: 1px solid #2a2d46;
+            overflow-x: auto; -webkit-overflow-scrolling: touch;
+        }
+        
+        .dpad-container { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 120px; }
+        .dpad-row { display: flex; gap: 4px; }
+        .dpad-btn { width: 42px; height: 42px; font-size: 1.2rem; border-radius: 8px; border: none; background: #23244a; color: #fff; cursor: pointer; }
+        
+        #abilityButtons, #scareEffectButtons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        #abilityButtons button, #scareEffectButtons button {
+            padding: 10px 14px; font-size: 0.85rem; border-radius: 8px;
+            background: #4f46e5; color: #fff; border: none; cursor: pointer; white-space: nowrap;
+        }
+        #scareEffectButtons button { background: #dc2626; }
+        #closeGameBtn { background: #7f1d1d !important; }
+
+        .game-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: #101220; }
+        .game-header h1 { margin: 0; font-size: 1.2rem; color: #a5b4fc; }
+        
+        #peerList, #debugLog { font-size: 0.8rem; }
     </style>
 </head>
 <body>
-    <!-- D-pad overlay for mobile/tablet movement (always visible, for all roles) -->
-    <div id="dpadOverlay" style="position:fixed;left:32px;bottom:32px;transform:none;z-index:1000;display:flex;flex-direction:column;align-items:center;gap:0.5em;user-select:none;touch-action:none;">
-        <button class="dpad-btn" data-dir="up" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">▲</button>
-        <div style="display:flex;gap:0.5em;">
-            <button class="dpad-btn" data-dir="left" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">◀</button>
-            <button class="dpad-btn" data-dir="down" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">▼</button>
-            <button class="dpad-btn" data-dir="right" style="width:48px;height:48px;font-size:2rem;border-radius:50%;border:none;background:#23244a;color:#fff;box-shadow:0 2px 8px #0003;">▶</button>
-        </div>
-    </div>
-    <script>
-    // D-pad movement for touch devices
-    function dpadMove(dir) {
-        switch(dir) {
-            case 'up': window.sendMovement(0, -4); break;
-            case 'down': window.sendMovement(0, 4); break;
-            case 'left': window.sendMovement(-4, 0); break;
-            case 'right': window.sendMovement(4, 0); break;
-        }
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('.dpad-btn').forEach(function(btn) {
-            btn.addEventListener('touchstart', function(e) {
-                e.preventDefault();
-                dpadMove(btn.dataset.dir);
-            });
-            btn.addEventListener('click', function(e) {
-                e.preventDefault();
-                dpadMove(btn.dataset.dir);
-            });
-        });
-        // Always show D-pad
-        document.getElementById('dpadOverlay').style.display = 'flex';
-    });
-    </script>
-    <div class="page">
-        <header class="card">
-            <h1><?= htmlspecialchars(SITE_TITLE) ?> Gameplay</h1>
-            <p>Use the arrow keys to move. Host and walkers are shown on the path. Scare effects will appear if triggered by the host.</p>
+    <div class="page game-container">
+        <header class="game-header">
+            <h1>Room: <?= htmlspecialchars($roomId) ?></h1>
+            <div>
+                <button id="muteToggle" onclick="window.toggleMute()" style="background:#374151;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">🔊</button>
+                <button type="button" onclick="if(confirm('Leave game?')) window.location.href='lobby.php'" style="background:#374151;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-left:4px;">Leave</button>
+                <?php if ($isScarer): ?>
+                <button type="button" id="closeGameBtn" style="background:#7f1d1d;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-left:4px;">Close Game</button>
+                <?php endif; ?>
+            </div>
         </header>
-        <?php if ($isScarer): ?>
-        <section class="card">
-            <h2>Host Scare Controls</h2>
-            <button type="button" onclick="sendScare('Spectral Chill')">Trigger Spectral Chill</button>
-            <button type="button" onclick="sendScare('Flashbang Fear')">Trigger Flashbang Fear</button>
-            <button type="button" onclick="sendScare('Ghostly Whisper')">Trigger Ghostly Whisper</button>
-            <button type="button" id="closeGameBtn" style="margin-left:24px;background:#7f1d1d;color:#fff;">Close Game</button>
-        </section>
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            var closeBtn = document.getElementById('closeGameBtn');
-            if (closeBtn) {
-                closeBtn.onclick = async function() {
-                    if (!window.GAME_INSTANCE_ID) { alert('No game instance.'); return; }
-                    if (!confirm('Are you sure you want to close this game?')) return;
-                    closeBtn.disabled = true;
-                    closeBtn.textContent = 'Closing...';
-                    try {
-                        const resp = await fetch('close_game.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ instance_id: window.GAME_INSTANCE_ID })
-                        });
-                        const data = await resp.json();
-                        if (data.success) {
-                            window.location.href = 'lobby.php';
-                        } else {
-                            alert('Failed to close: ' + (data.error || 'Unknown error'));
-                        }
-                    } catch (e) {
-                        alert('Error: ' + (e.message || e));
-                    } finally {
-                        closeBtn.disabled = false;
-                        closeBtn.textContent = 'Close Game';
-                    }
-                };
-            }
-        });
-        </script>
-        <?php endif; ?>
-        <section class="card">
-            <h2>Gameplay</h2>
+
+        <section class="card main-game-card">
             <audio id="booSound" src="" preload="auto"></audio>
             <?php if ($isScarer): ?>
-            <div id="soulCounterBar" style="margin:10px 0 0 0;padding:8px 18px;background:#23244a;border-radius:10px;display:inline-block;font-size:1.1rem;">
-                <span>Souls Collected: <span id="soulCounter">0</span></span>
+            <div id="soulCounterBar" style="margin:10px 20px 0;padding:4px 12px;background:#23244a;border-radius:6px;display:inline-block;font-size:0.9rem;align-self:flex-start;">
+                <span>Souls: <span id="soulCounter">0</span></span>
             </div>
             <?php endif; ?>
-            <button type="button" onclick="if(confirm('Are you sure you want to leave the game?')) window.location.href='lobby.php'" style="float:right;margin-top:-8px;margin-right:-8px;background:#374151;color:#fff;">Leave</button>
-            <button id="muteToggle" onclick="window.toggleMute()" style="float:right;margin-top:-8px;margin-right:8px;background:#374151;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;" title="Toggle Mute">🔊</button>
+            
             <div id="gamePath">
                 <div id="pathTrack"></div>
                 <div id="playerLayer"></div>
                 <div id="scareOverlay"></div>
             </div>
-            <div id="connectionBadge" class="status-badge offline">Offline</div>
-            <button class="debug-toggle" onclick="document.getElementById('debugPanel').classList.toggle('open')">Show Debug Panel</button>
-            <div id="debugPanel">
-                <pre id="debugLog" style="white-space: pre-wrap; background: rgba(12, 14, 28, 0.9); border: 1px solid #262a45; color: #c6d9ff; padding: 12px; border-radius: 12px; max-height: 180px; overflow:auto; margin-top: 16px; font-size:0.9rem;">Debug output will appear here.</pre>
+
+            <div id="gameControls">
+                <div class="dpad-container">
+                    <button class="dpad-btn" data-dir="up">▲</button>
+                    <div class="dpad-row">
+                        <button class="dpad-btn" data-dir="left">◀</button>
+                        <button class="dpad-btn" data-dir="down">▼</button>
+                        <button class="dpad-btn" data-dir="right">▶</button>
+                    </div>
+                </div>
+
+                <?php if ($isScarer): ?>
+                <div id="abilityButtons">
+                    <button type="button" onclick="sendScare('Ability Q', 'ability1')">Q</button>
+                    <button type="button" onclick="sendScare('Ability W', 'ability2')">W</button>
+                    <button type="button" onclick="sendScare('Ability E', 'ability3')">E</button>
+                    <button type="button" onclick="sendScare('Ability R', 'ability4')">R</button>
+                </div>
+                <div id="scareEffectButtons">
+                    <button type="button" onclick="sendScare('Spectral Chill', 'ability1')">Chill</button>
+                    <button type="button" onclick="sendScare('Flashbang Fear', 'ability1')">Flash</button>
+                    <button type="button" onclick="sendScare('Ghostly Whisper', 'ability1')">Whisper</button>
+                </div>
+                <?php endif; ?>
             </div>
-            <ul id="peerList"></ul>
-            <p class="status" id="statusMessage">Status will appear here.</p>
-            <div id="roomInfoBar"></div>
+
+            <div id="roomInfoBar" style="padding: 0 10px;"></div>
+            <p class="status" id="statusMessage" style="font-size: 0.8rem; padding: 0 10px;">Initializing...</p>
         </section>
+
+        <footer style="padding: 10px; background: #090913;">
+            <div id="connectionBadge" class="status-badge offline" style="font-size: 0.7rem;">Offline</div>
+            <button class="debug-toggle" onclick="document.getElementById('debugPanel').classList.toggle('open')" style="font-size: 0.8rem; margin-left: 10px;">Debug</button>
+            <div id="debugPanel">
+                <pre id="debugLog" style="white-space: pre-wrap; background: rgba(12, 14, 28, 0.9); border: 1px solid #262a45; color: #c6d9ff; padding: 8px; border-radius: 8px; max-height: 100px; overflow:auto; font-size:0.7rem;">Debug log ready.</pre>
+            </div>
+        </footer>
     </div>
-    <!-- Hidden host info for JS compatibility -->
     <div style="display:none">
         <span id="hostPeerId"></span>
         <span id="hostRoomId"></span>
@@ -177,30 +165,45 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
         margin: 18px 0 0 0;
         background: #181a31;
         border-radius: 12px;
-        border: 1px solid #35386e;
+        border: none;
         color: #e5e7eb;
-        font-size: 1rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        font-size: 0.8rem;
     }
     #roomInfoTable th, #roomInfoTable td {
-        padding: 12px 18px;
+        padding: 6px 12px;
         text-align: left;
         vertical-align: top;
     }
     #roomInfoTable th {
         background: #23244a;
-        font-weight: 600;
-        font-size: 1.05rem;
-        border-bottom: 1px solid #35386e;
-    }
-    #roomInfoTable td {
-        background: #181a31;
-    }
-    #roomInfoTable ul {
-        margin: 0; padding-left: 18px;
+        font-weight: normal;
+        color: #9ca3af;
     }
     </style>
     <script>
+    // D-pad movement for touch devices
+    function dpadMove(dir) {
+        switch(dir) {
+            case 'up': window.sendMovement(0, -4); break;
+            case 'down': window.sendMovement(0, 4); break;
+            case 'left': window.sendMovement(-4, 0); break;
+            case 'right': window.sendMovement(4, 0); break;
+        }
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.dpad-btn').forEach(function(btn) {
+            const handle = (e) => {
+                e.preventDefault();
+                dpadMove(btn.dataset.dir);
+            };
+            btn.addEventListener('touchstart', handle, {passive: false});
+            btn.addEventListener('mousedown', handle);
+        });
+        // Initial hide for debug panel
+        const dp = document.getElementById('debugPanel');
+        if (dp) dp.classList.remove('open');
+    });
+
     // Update room info panel with live data as a table
     function updateRoomInfo(players) {
         console.log('[updateRoomInfo] called with:', players);
@@ -276,6 +279,30 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
             }
         }, 100);
     })();
+
+    // Close Game button logic (moved from original host section)
+    document.addEventListener('DOMContentLoaded', function() {
+        var closeBtn = document.getElementById('closeGameBtn');
+        if (closeBtn) {
+            closeBtn.onclick = async function() {
+                if (!window.GAME_INSTANCE_ID) { alert('No game instance.'); return; }
+                if (!confirm('Are you sure you want to close this game?')) return;
+                closeBtn.disabled = true;
+                closeBtn.textContent = 'Closing...';
+                try {
+                    const resp = await fetch('close_game.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ instance_id: window.GAME_INSTANCE_ID })
+                    });
+                    const data = await resp.json();
+                    if (data.success) { window.location.href = 'lobby.php'; }
+                    else { alert('Failed to close: ' + (data.error || 'Unknown error')); }
+                } catch (e) { alert('Error: ' + (e.message || e)); }
+                finally { closeBtn.disabled = false; closeBtn.textContent = 'Close Game'; }
+            };
+        }
+    });
     </script>
 </body>
 </html>
