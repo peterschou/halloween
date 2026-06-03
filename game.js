@@ -48,6 +48,8 @@ let localPeerState = {
   pendingIce: [],
   joinTimeout: null,
 };
+let movementDir = { dx: 0, dy: 0 };
+let currentSpeed = 0.5;
 
 // --- Sound & Mute Logic ---
 let isMuted = localStorage.getItem('scarePathMuted') === 'true';
@@ -579,8 +581,11 @@ function handleHostMessage(peerId, rawData) {
     if (!msg.payload.username) {
       msg.payload.username = window.WALKER_USERNAME || peerId;
     }
-    gameState.players[peerId] = msg.payload;
-    gameState.players[peerId].lastSeen = Date.now();
+    gameState.players[peerId] = {
+      ...(existingPlayer || {}),
+      ...msg.payload,
+      lastSeen: Date.now()
+    };
 
     // Ensure host is always present in player list
     if (hostState.hostPeerId && !gameState.players[hostState.hostPeerId]) {
@@ -611,6 +616,7 @@ function broadcastHostState() {
   const payload = {
     type: 'gameState',
     payload: {
+      speed: currentSpeed,
       players: gameState.players,
       updatedAt: Date.now(),
     },
@@ -672,7 +678,9 @@ window.activateWalkerAbility = function(key) {
     sendMovement(0, 0);
     
     setTimeout(() => {
-      self.abilities.guardianActive = false;
+      // Re-fetch current player reference; the 'self' variable might be stale due to game state syncs
+      const p = gameState.players[selfId];
+      if (p && p.abilities) p.abilities.guardianActive = false;
       sendMovement(0, 0);
     }, GUARDIAN_DURATION);
   }
@@ -686,6 +694,22 @@ function handlePeerMessage(rawData) {
     return;
   }
   if (msg.type === 'gameState') {
+    if (msg.payload.speed !== undefined) {
+      currentSpeed = msg.payload.speed;
+      if (movementDir.dx !== 0) movementDir.dx = (movementDir.dx > 0 ? 1 : -1) * currentSpeed;
+      if (movementDir.dy !== 0) movementDir.dy = (movementDir.dy > 0 ? 1 : -1) * currentSpeed;
+    }
+
+    // If the walker has been respawned by the host, reset movement to a standstill
+    const selfId = localPeerState.peerId;
+    if (selfId && gameState.players[selfId] && msg.payload.players[selfId]) {
+      const oldRespawn = gameState.players[selfId].respawnedAt;
+      const newRespawn = msg.payload.players[selfId].respawnedAt;
+      if (newRespawn && newRespawn !== oldRespawn) {
+        movementDir = { dx: 0, dy: 0 };
+      }
+    }
+
     renderGameState(msg.payload);
   }
   if (msg.type === 'scare') {
@@ -938,17 +962,60 @@ if (isGameplayPage()) {
       return;
     }
 
-    let dx = 0, dy = 0;
+    let nextDir = { dx: 0, dy: 0 };
     switch (e.key) {
-      case 'ArrowLeft': dx = -4; break;
-      case 'ArrowRight': dx = 4; break;
-      case 'ArrowUp': dy = -4; break;
-      case 'ArrowDown': dy = 4; break;
+      case 'ArrowLeft':  nextDir = { dx: -currentSpeed, dy: 0 }; break;
+      case 'ArrowRight': nextDir = { dx: currentSpeed,  dy: 0 }; break;
+      case 'ArrowUp':    nextDir = { dx: 0,             dy: -currentSpeed }; break;
+      case 'ArrowDown':  nextDir = { dx: 0,             dy: currentSpeed }; break;
       default: return;
     }
-    sendMovement(dx, dy);
+
+    if (nextDir.dx === movementDir.dx && nextDir.dy === movementDir.dy) {
+      movementDir = { dx: 0, dy: 0 };
+    } else {
+      movementDir = nextDir;
+    }
     e.preventDefault();
   });
+
+  // Snake-style continuous movement tick
+  // Applies the last pressed direction every 100ms
+  setInterval(() => {
+    if (movementDir.dx !== 0 || movementDir.dy !== 0) {
+      // Use the stored direction to trigger movement
+      sendMovement(movementDir.dx, movementDir.dy);
+    }
+  }, 100);
+
+  // Inject speed control for host
+  if (window.SCARER_USER_ID) {
+    const muteBtn = document.getElementById('muteToggle');
+    if (muteBtn && muteBtn.parentNode) {
+      const speedWrap = document.createElement('span');
+      speedWrap.style.marginLeft = '12px';
+      speedWrap.style.display = 'inline-flex';
+      speedWrap.style.alignItems = 'center';
+      speedWrap.style.verticalAlign = 'middle';
+      speedWrap.innerHTML = `
+        <label style="font-size: 0.8rem; margin-right: 5px; opacity: 0.8;">Speed:</label>
+        <select id="speedSelector" style="background:#13162a; color:#eef; border:1px solid #3b3f5d; border-radius:6px; padding:2px 4px; font-size:0.8rem; cursor:pointer;">
+          <option value="0.2">Slow</option>
+          <option value="0.5" selected>Normal</option>
+          <option value="0.9">Fast</option>
+          <option value="1.4">Spooky</option>
+        </select>
+      `;
+      muteBtn.parentNode.insertBefore(speedWrap, muteBtn.nextSibling);
+
+      document.getElementById('speedSelector').addEventListener('change', (e) => {
+        currentSpeed = parseFloat(e.target.value);
+        if (movementDir.dx !== 0) movementDir.dx = (movementDir.dx > 0 ? 1 : -1) * currentSpeed;
+        if (movementDir.dy !== 0) movementDir.dy = (movementDir.dy > 0 ? 1 : -1) * currentSpeed;
+        broadcastHostState();
+      });
+    }
+  }
 }
 
 document.addEventListener('click', function(event) {
