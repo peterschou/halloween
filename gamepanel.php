@@ -8,7 +8,8 @@ $roomId = $_GET['room'] ?? '';
 $instanceId = $_GET['instance'] ?? '';
 
 $scarerAbilitySounds = [];
-foreach (['ability1', 'ability2', 'ability3', 'ability4', 'misfire'] as $ability) {
+foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
+    // Collect success sounds directly in the ability folder
     $scarerAbilitySounds[$ability] = [];
     $dir = __DIR__ . "/assets/sound_effects/scarer/{$ability}";
     if (is_dir($dir)) {
@@ -16,6 +17,17 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4', 'misfire'] as $ability
             $scarerAbilitySounds[$ability][] = 'assets/sound_effects/scarer/' . $ability . '/' . basename($filePath);
         }
         sort($scarerAbilitySounds[$ability], SORT_NATURAL);
+
+        // Collect misfire sounds from the /misfire subfolder
+        $misfireKey = $ability . '_misfire';
+        $scarerAbilitySounds[$misfireKey] = [];
+        $misfireDir = $dir . '/misfire';
+        if (is_dir($misfireDir)) {
+            foreach (glob($misfireDir . '/*.{mp3,wav}', GLOB_BRACE) as $filePath) {
+                $scarerAbilitySounds[$misfireKey][] = 'assets/sound_effects/scarer/' . $ability . '/misfire/' . basename($filePath);
+            }
+            sort($scarerAbilitySounds[$misfireKey], SORT_NATURAL);
+        }
     }
 }
 ?>

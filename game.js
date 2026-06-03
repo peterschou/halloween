@@ -23,10 +23,13 @@ const SCARER_ABILITY_SOUNDS = (window.SCARER_ABILITY_SOUNDS && typeof window.SCA
         'assets/sound_effects/scarer/ability1/scare3.wav',
         'assets/sound_effects/scarer/ability1/scare4.wav',
       ],
+      ability1_misfire: [],
       ability2: [],
+      ability2_misfire: [],
       ability3: [],
+      ability3_misfire: [],
       ability4: [],
-      misfire: [],
+      ability4_misfire: [],
     };
 const peerConnections = new Map();
 const pendingHostIce = new Map();
@@ -746,9 +749,17 @@ function handlePeerMessage(rawData) {
 function renderGameState(payload) {
   if (!payload) return;
   console.log('[game.js renderGameState] called with:', payload);
-  gameState.players = payload.players || {};
-  window.gameState = gameState; // ensure global for info bar
   const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
+  const localSelf = selfId ? gameState.players[selfId] : null;
+
+  gameState.players = payload.players || {};
+
+  // Preserve local player state if missing from the host update
+  if (selfId && localSelf && !gameState.players[selfId]) {
+    gameState.players[selfId] = localSelf;
+  }
+
+  window.gameState = gameState; // ensure global for info bar
   const self = selfId ? gameState.players[selfId] : null;
   if (self) {
     // Keep a self marker available for future extensions
@@ -765,7 +776,9 @@ function renderGameState(payload) {
 function sendMovement(deltaX, deltaY) {
   const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
   const selfRole = hostState.hostPeerId === 'host' && !localPeerState.peerId ? 'host' : 'walker';
-  const current = selfId && gameState.players[selfId] ? gameState.players[selfId] : { x: 0, y: 0 };
+  const current = (selfId && gameState.players[selfId]) 
+    ? gameState.players[selfId] 
+    : { x: (selfRole === 'host' ? SCARER_START_X : WALKER_START_X), y: 50 };
 
   // Cleanup expired abilities before sending
   if (current.abilities && current.abilities.guardianEnds < Date.now()) {
@@ -1117,7 +1130,7 @@ window.triggerScarerAbility = function(key) {
     });
 
     if (hitAny) playBooSound('ability1');
-    else playBooSound('misfire');
+    else playBooSound('ability1_misfire');
 
     hostState.cooldowns.q = Date.now() + 3000;
     renderGameState({ players: gameState.players });
@@ -1140,10 +1153,20 @@ window.triggerScarerAbility = function(key) {
       soulCounter++;
       updateSoulCounter();
     } else {
-      playBooSound('misfire');
+      playBooSound('ability2_misfire');
     }
     hostState.cooldowns.w = Date.now() + 8000;
     renderGameState({ players: gameState.players });
+    broadcastHostState();
+  } else if (key === 'e') {
+    // Placeholder for Freeze - triggers misfire if logic not yet defined
+    playBooSound('ability3_misfire');
+    hostState.cooldowns.e = Date.now() + 5000;
+    broadcastHostState();
+  } else if (key === 'r') {
+    // Placeholder for Speed/Ultimate - triggers misfire if logic not yet defined
+    playBooSound('ability4_misfire');
+    hostState.cooldowns.r = Date.now() + 12000;
     broadcastHostState();
   }
 };
