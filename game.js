@@ -26,6 +26,7 @@ const SCARER_ABILITY_SOUNDS = (window.SCARER_ABILITY_SOUNDS && typeof window.SCA
       ability2: [],
       ability3: [],
       ability4: [],
+      misfire: [],
     };
 const peerConnections = new Map();
 const pendingHostIce = new Map();
@@ -644,18 +645,33 @@ window.notifyPeersGameClosed = function() {
 function updateAbilityUI() {
   const isScarer = !!window.SCARER_USER_ID;
   const keys = ['q', 'w', 'e', 'r'];
+  const now = Date.now();
+
   if (isScarer) {
     keys.forEach(k => {
       const btn = document.getElementById(`scarer-btn-${k}`);
-      if (btn) btn.classList.toggle('cooldown', (hostState.cooldowns[k] || 0) > Date.now());
+      if (!btn) return;
+      const cd = hostState.cooldowns[k] || 0;
+      const remaining = Math.max(0, Math.ceil((cd - now) / 1000));
+      const isActive = remaining > 0;
+
+      btn.classList.toggle('cooldown', isActive);
+      if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
+      btn.textContent = isActive ? `${remaining}s` : btn.dataset.originalText;
     });
   } else {
     const self = gameState.players[localPeerState.peerId];
     if (self) {
       keys.forEach(k => {
         const btn = document.getElementById(`walker-btn-${k}`);
+        if (!btn) return;
         const cd = k === 'q' ? (self.abilities?.guardianCooldown || 0) : 0;
-        if (btn) btn.classList.toggle('cooldown', cd > Date.now());
+        const remaining = Math.max(0, Math.ceil((cd - now) / 1000));
+        const isActive = remaining > 0;
+
+        btn.classList.toggle('cooldown', isActive);
+        if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
+        btn.textContent = isActive ? `${remaining}s` : btn.dataset.originalText;
       });
     }
   }
@@ -1099,14 +1115,14 @@ window.triggerScarerAbility = function(key) {
         gameState.players[target.peerId] = { ...target.player };
       }
     });
-    if (hitAny) {
-      playBooSound('ability1');
-      hostState.cooldowns.q = Date.now() + 3000;
-      renderGameState({ players: gameState.players });
-      broadcastHostState();
-    }
-  }
-  if (key === 'w') {
+
+    if (hitAny) playBooSound('ability1');
+    else playBooSound('misfire');
+
+    hostState.cooldowns.q = Date.now() + 3000;
+    renderGameState({ players: gameState.players });
+    broadcastHostState();
+  } else if (key === 'w') {
     const targets = getNearbyWalkers();
     const target = targets.find(t => t.player.frozen);
     if (target) {
@@ -1122,11 +1138,13 @@ window.triggerScarerAbility = function(key) {
         frozen: false, scareCount: 0, respawnedAt: Date.now(),
       };
       soulCounter++;
-      hostState.cooldowns.w = Date.now() + 8000;
       updateSoulCounter();
-      renderGameState({ players: gameState.players });
-      broadcastHostState();
+    } else {
+      playBooSound('misfire');
     }
+    hostState.cooldowns.w = Date.now() + 8000;
+    renderGameState({ players: gameState.players });
+    broadcastHostState();
   }
 };
 

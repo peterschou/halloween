@@ -8,7 +8,7 @@ $roomId = $_GET['room'] ?? '';
 $instanceId = $_GET['instance'] ?? '';
 
 $scarerAbilitySounds = [];
-foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
+foreach (['ability1', 'ability2', 'ability3', 'ability4', 'misfire'] as $ability) {
     $scarerAbilitySounds[$ability] = [];
     $dir = __DIR__ . "/assets/sound_effects/scarer/{$ability}";
     if (is_dir($dir)) {
