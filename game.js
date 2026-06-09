@@ -66,6 +66,7 @@ function updateMovementDir(dir) {
 
   if (nextDir.dx === movementDir.dx && nextDir.dy === movementDir.dy) {
     movementDir = { dx: 0, dy: 0 };
+    sendMovement(0, 0);
   } else {
     movementDir = nextDir;
   }
@@ -117,6 +118,12 @@ const gameState = { players: {}, scare: null };
 
 function genPeerId() {
   return 'peer-' + Math.random().toString(36).slice(2, 12) + '-' + Date.now();
+}
+
+function getAspectRatio() {
+  const path = document.getElementById('gamePath');
+  if (!path) return 1.0;
+  return path.clientWidth / path.clientHeight;
 }
 
 function debug(...args) {
@@ -216,7 +223,6 @@ function displayScare(effect) {
 function renderPlayerLayer(players) {
   const layer = document.getElementById('playerLayer');
   if (!layer) return;
-  layer.innerHTML = '';
   const playerIds = Object.keys(players);
   const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
   const self = selfId ? players[selfId] : null;
@@ -236,23 +242,61 @@ function renderPlayerLayer(players) {
       }
     }
   }
+
+  const activeAvatars = new Set();
   for (const peerId of playerIds) {
     if (!visibleIds.has(peerId)) continue;
     const player = players[peerId];
     if (!player || typeof player.x !== 'number' || typeof player.y !== 'number') continue;
+    
+    activeAvatars.add(peerId);
     const role = player.role || (peerId === 'host' ? 'host' : 'walker');
-    const avatar = document.createElement('div');
-    avatar.className = `player-avatar ${role}` + 
+    
+    let avatar = layer.querySelector(`[data-peer-id="${peerId}"]`);
+    if (!avatar) {
+      avatar = document.createElement('div');
+      avatar.dataset.peerId = peerId;
+      if (role !== 'host') {
+        avatar.innerHTML = `
+          <div class="visitor-body">
+            <div class="visitor-head">
+              <div class="visitor-hair"></div>
+              <div class="visitor-eye left"></div>
+              <div class="visitor-eye right"></div>
+              <div class="visitor-mouth"></div>
+            </div>
+            <div class="visitor-torso">
+              <div class="visitor-arm left"></div>
+              <div class="visitor-arm right"></div>
+            </div>
+            <div class="visitor-leg left"></div>
+            <div class="visitor-leg right"></div>
+          </div>`;
+      }
+      layer.appendChild(avatar);
+    }
+
+    const newClassName = `player-avatar ${role}` + 
                        (player.x <= SAFE_ZONE_X && role === 'walker' ? ' near' : '') +
                        (player.frozen ? ' frozen' : '') +
                        (player.abilities?.guardianActive ? ' has-aura' : '') +
-                       (player.abilities?.panicActive ? ' panic' : '');
+                       (player.abilities?.panicActive ? ' panic' : '') +
+                       (player.facing ? ` facing-${player.facing}` : '') +
+                       (player.moving ? ' moving' : '');
+
+    if (avatar.className !== newClassName) avatar.className = newClassName;
     avatar.style.left = `${Math.min(96, Math.max(2, player.x))}%`;
     avatar.style.top = `${Math.min(87, Math.max(13, player.y))}%`;
     avatar.dataset.label = role === 'host' ? 'H' : 'W';
-    avatar.textContent = role === 'host' ? '🕷' : '👻';
-    layer.appendChild(avatar);
+    if (role === 'host' && avatar.textContent !== '🕷') avatar.textContent = '🕷';
   }
+
+  // Cleanup stale avatars
+  Array.from(layer.children).forEach(child => {
+    if (!activeAvatars.has(child.dataset.peerId)) {
+      layer.removeChild(child);
+    }
+  });
 }
 
 function computeProximity(playerArray) {
@@ -831,6 +875,19 @@ function sendMovement(deltaX, deltaY) {
     return;
   }
 
+  // Determine direction and movement state
+  let facing = current.facing || 'down';
+  const isMoving = deltaX !== 0 || deltaY !== 0;
+  if (deltaX > 0) facing = 'right';
+  else if (deltaX < 0) facing = 'left';
+  else if (deltaY > 0) facing = 'down';
+  else if (deltaY < 0) facing = 'up';
+  
+  // If we stopped, keep the last facing but clear moving flag
+  const moving = isMoving;
+  // Only update facing if we are actually moving
+  const finalFacing = isMoving ? facing : current.facing;
+
   const newX = clampMovement(current.x + deltaX, selfRole, 'x', current.x);
   const newY = clampMovement(current.y + deltaY, selfRole, 'y', current.y);
   let username = (selfRole === 'host') ? (window.SCARER_USERNAME || selfId) : (window.WALKER_USERNAME || selfId);
@@ -845,7 +902,9 @@ function sendMovement(deltaX, deltaY) {
     timestamp: Date.now(),
     role: selfRole,
     username: username,
-    abilities: current.abilities || {}
+    abilities: current.abilities || {},
+    facing: finalFacing,
+    moving: moving
   };
   const movement = { type: 'movement', payload };
 
@@ -866,7 +925,7 @@ function isHostInWalkerAura(x, y) {
   for (const id in gameState.players) {
     const p = gameState.players[id];
     if (p.role === 'walker' && p.abilities?.guardianActive) {
-      const dx = x - p.x;
+      const dx = (x - p.x) * getAspectRatio();
       const dy = y - p.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
       if (dist < PROXIMITY_DISTANCE) return true;
@@ -883,14 +942,15 @@ function resolveHostAuraCollision() {
   for (const id in gameState.players) {
     const p = gameState.players[id];
     if (p.role === 'walker' && p.abilities?.guardianActive) {
-      const dx = host.x - p.x;
+      const ratio = getAspectRatio();
+      const dx = (host.x - p.x) * ratio;
       const dy = host.y - p.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist < PROXIMITY_DISTANCE) {
         // Push the host out to the boundary of the aura
         const angle = dist === 0 ? Math.random() * Math.PI * 2 : Math.atan2(dy, dx);
-        host.x = p.x + Math.cos(angle) * PROXIMITY_DISTANCE;
+        host.x = p.x + (Math.cos(angle) * PROXIMITY_DISTANCE) / ratio;
         host.y = p.y + Math.sin(angle) * PROXIMITY_DISTANCE;
         moved = true;
       }
@@ -1052,7 +1112,8 @@ if (isGameplayPage()) {
         multiplier = 2.0; // Double speed during panic
       }
       
-      sendMovement(movementDir.dx * multiplier, movementDir.dy * multiplier);
+      const ratio = getAspectRatio();
+      sendMovement(movementDir.dx * multiplier, movementDir.dy * multiplier * ratio);
     }
   }, 100);
 

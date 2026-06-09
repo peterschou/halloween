@@ -43,13 +43,60 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
         h1, h2 { margin: .4em 0; }
         .card { background: rgba(16, 18, 32, .94); border: 1px solid #2a2d46; border-radius: 18px; padding: 20px; margin-bottom: 16px; }
         .status { margin: 12px 0; color: #d6d6ff; }
-        #gamePath { position: relative; width: 100%; height: 280px; margin-top: 18px; background: radial-gradient(circle at top, #181a31, #090913 45%); border: 2px solid #35386e; border-radius: 20px; overflow: hidden; }
+        #gamePath { position: relative; width: 100%; margin-top: 18px; background: radial-gradient(circle at top, #181a31, #090913 45%); border: 2px solid #35386e; border-radius: 20px; overflow: hidden; }
         #pathTrack { position: absolute; left: 8%; top: 8%; width: 84%; height: 84%; border-radius: 24px; background: linear-gradient(180deg, rgba(100,80,180,.18), rgba(54,56,92,.95)); box-shadow: inset 0 0 30px rgba(0,0,0,.35); }
         #playerLayer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
         .player-avatar { position: absolute; width: 28px; height: 28px; border-radius: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; color: #111; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 4px rgba(0,0,0,.7); }
-        .player-avatar.host { background: #a855f7; box-shadow: 0 0 16px rgba(168,85,247,.75); }
-        .player-avatar.walker { background: #14b8a6; box-shadow: 0 0 16px rgba(20,184,166,.75); }
+        .player-avatar.host { background: #a855f7; box-shadow: 0 0 16px rgba(168,85,247,.75); font-size: 1.2rem; }
+        
+        /* Human Visitor Styles */
+        .player-avatar.walker { background: transparent; box-shadow: none; width: 32px; height: 48px; }
+        .visitor-body { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; transition: transform 0.2s; }
+        .visitor-head { position: relative; width: 12px; height: 12px; background: #ffdbac; border-radius: 50%; border: 1px solid #8d5524; z-index: 3; }
+        .visitor-hair { position: absolute; top: -2px; left: -1px; width: 14px; height: 6px; background: #3e2723; border-radius: 6px 6px 0 0; z-index: 4; }
+        .visitor-eye { position: absolute; top: 4px; width: 2px; height: 2px; background: #000; border-radius: 50%; }
+        .visitor-eye.left { left: 2px; }
+        .visitor-eye.right { right: 2px; }
+        .visitor-mouth { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 1.5px; background: #8d5524; border-radius: 1px; }
+        
+        .visitor-torso { width: 14px; height: 13px; background: #3b82f6; border-radius: 3px; margin-top: -1px; z-index: 2; position: relative; }
+        .visitor-arm { width: 4px; height: 12px; background: #3b82f6; position: absolute; top: 0; border-radius: 2px; }
+        .visitor-arm.left { left: -4px; transform-origin: top center; transform: rotate(10deg); }
+        .visitor-arm.right { right: -4px; transform-origin: top center; transform: rotate(-10deg); }
+        
+        .visitor-leg { width: 6px; height: 20px; background: #94a3b8; border: 1px solid #1e293b; position: absolute; bottom: 0; border-radius: 2px; z-index: 1; box-sizing: border-box; }
+        .visitor-leg.left { left: 9px; }
+        .visitor-leg.right { right: 9px; }
+
+        /* Directional Facing */
+        .facing-left .visitor-body { transform: scaleX(-1); }
+        .facing-up .visitor-head { transform: translateY(1px); }
+        /* Hide face features when walking away */
+        .facing-up .visitor-eye, .facing-up .visitor-mouth { display: none; }
+        
+        /* Walking Animation */
+        .moving .visitor-body { animation: bob 0.4s infinite ease-in-out; }
+        .moving .visitor-leg.left { animation: stride 0.4s infinite alternate; }
+        .moving .visitor-leg.right { animation: stride 0.4s infinite alternate-reverse; }
+        .moving .visitor-arm.left { animation: swing 0.4s infinite alternate; }
+        .moving .visitor-arm.right { animation: swing 0.4s infinite alternate-reverse; }
+
+        @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+        @keyframes stride { 
+            from { transform: translateY(0) rotate(-10deg); } 
+            to { transform: translateY(-4px) rotate(20deg); } 
+        }
+        @keyframes swing {
+            from { transform: rotate(20deg); }
+            to { transform: rotate(-20deg); }
+        }
+        .facing-left.moving .visitor-body { animation: bob-left 0.4s infinite ease-in-out; }
+        @keyframes bob-left { 0%, 100% { transform: scaleX(-1) translateY(0); } 50% { transform: scaleX(-1) translateY(-2px); } }
+
         .player-avatar.near { border: 2px solid #facc15; box-shadow: 0 0 18px rgba(250,204,21,.8); }
+        .player-avatar.walker.near { border: none; }
+        .player-avatar.walker.near .visitor-head { box-shadow: 0 0 10px #facc15; border-color: #facc15; }
+
         .player-avatar::after { content: attr(data-label); position: absolute; top: -18px; left: 50%; transform: translateX(-50%); color: #eef; font-size: 0.7rem; white-space: nowrap; }
         .player-avatar.frozen { filter: grayscale(1) brightness(0.7); }
         /* Guardian Light Aura */
