@@ -55,6 +55,21 @@ let localPeerState = {
 let movementDir = { dx: 0, dy: 0 };
 let currentSpeed = 0.5;
 
+function updateMovementDir(dir) {
+  let nextDir = { dx: 0, dy: 0 };
+  if (dir === 'left') nextDir = { dx: -currentSpeed, dy: 0 };
+  else if (dir === 'right') nextDir = { dx: currentSpeed, dy: 0 };
+  else if (dir === 'up') nextDir = { dx: 0, dy: -currentSpeed };
+  else if (dir === 'down') nextDir = { dx: 0, dy: currentSpeed };
+
+  if (nextDir.dx === movementDir.dx && nextDir.dy === movementDir.dy) {
+    movementDir = { dx: 0, dy: 0 };
+  } else {
+    movementDir = nextDir;
+  }
+}
+window.updateMovementDir = updateMovementDir;
+
 // --- Sound & Mute Logic ---
 let isMuted = localStorage.getItem('scarePathMuted') === 'true';
 let wakeLock = null;
@@ -991,21 +1006,11 @@ if (isGameplayPage()) {
       return;
     }
 
-    let nextDir = { dx: 0, dy: 0 };
-    switch (e.key) {
-      case 'ArrowLeft':  nextDir = { dx: -currentSpeed, dy: 0 }; break;
-      case 'ArrowRight': nextDir = { dx: currentSpeed,  dy: 0 }; break;
-      case 'ArrowUp':    nextDir = { dx: 0,             dy: -currentSpeed }; break;
-      case 'ArrowDown':  nextDir = { dx: 0,             dy: currentSpeed }; break;
-      default: return;
+    const dirMap = { 'ArrowLeft': 'left', 'ArrowRight': 'right', 'ArrowUp': 'up', 'ArrowDown': 'down' };
+    if (dirMap[e.key]) {
+      updateMovementDir(dirMap[e.key]);
+      e.preventDefault();
     }
-
-    if (nextDir.dx === movementDir.dx && nextDir.dy === movementDir.dy) {
-      movementDir = { dx: 0, dy: 0 };
-    } else {
-      movementDir = nextDir;
-    }
-    e.preventDefault();
   });
 
   // Snake-style continuous movement tick

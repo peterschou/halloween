@@ -247,11 +247,8 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
     <script>
     // D-pad movement for touch devices
     function dpadMove(dir) {
-        switch(dir) {
-            case 'up': window.sendMovement(0, -4); break;
-            case 'down': window.sendMovement(0, 4); break;
-            case 'left': window.sendMovement(-4, 0); break;
-            case 'right': window.sendMovement(4, 0); break;
+        if (typeof window.updateMovementDir === 'function') {
+            window.updateMovementDir(dir);
         }
     }
     document.addEventListener('DOMContentLoaded', function() {
