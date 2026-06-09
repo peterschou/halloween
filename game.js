@@ -248,7 +248,7 @@ function renderPlayerLayer(players) {
                        (player.abilities?.guardianActive ? ' has-aura' : '') +
                        (player.abilities?.panicActive ? ' panic' : '');
     avatar.style.left = `${Math.min(96, Math.max(2, player.x))}%`;
-    avatar.style.top = `${Math.min(88, Math.max(2, player.y))}%`;
+    avatar.style.top = `${Math.min(87, Math.max(13, player.y))}%`;
     avatar.dataset.label = role === 'host' ? 'H' : 'W';
     avatar.textContent = role === 'host' ? '🕷' : '👻';
     layer.appendChild(avatar);
@@ -808,7 +808,7 @@ function renderGameState(payload) {
     const marker = document.getElementById('playerMarker');
     if (marker) {
       marker.style.left = `${Math.min(96, Math.max(2, self.x))}%`;
-      marker.style.top = `${Math.min(88, Math.max(2, self.y))}%`;
+      marker.style.top = `${Math.min(87, Math.max(13, self.y))}%`;
     }
   }
   renderPlayerList(gameState.players);
@@ -900,7 +900,7 @@ function resolveHostAuraCollision() {
   if (moved) {
     // Clamp new position to game bounds and safe zone
     host.x = Math.max(SAFE_ZONE_X + 1, Math.min(100, host.x));
-    host.y = Math.max(0, Math.min(100, host.y));
+    host.y = Math.max(13, Math.min(87, host.y));
     gameState.players[hostState.hostPeerId] = host;
   }
 }
@@ -916,7 +916,7 @@ function clampMovement(value, role, axis, prevVal) {
       return targetX;
     }
     if (axis === 'y') {
-      const targetY = Math.max(0, Math.min(100, value));
+      const targetY = Math.max(13, Math.min(87, value));
       if (isHostInWalkerAura(current.x, targetY)) return prevVal;
       return targetY;
     }
@@ -926,7 +926,7 @@ function clampMovement(value, role, axis, prevVal) {
     return Math.max(0, Math.min(100, value));
   }
   // y axis
-  return Math.max(0, Math.min(100, value));
+  return Math.max(13, Math.min(87, value));
 }
 
 async function sendScare(effect) {
