@@ -62,6 +62,17 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
             border-radius: 50%;
             animation: pulse-aura 2s infinite;
         }
+        /* Panic Visual Effect */
+        .player-avatar.panic {
+            border: 2px solid #ef4444;
+            box-shadow: 0 0 15px #ef4444;
+            animation: jitter 0.1s infinite;
+        }
+        @keyframes jitter {
+            0% { transform: translate(-50%, -50%) translate(-1px, 1px); }
+            50% { transform: translate(-50%, -50%) translate(1px, -1px); }
+            100% { transform: translate(-50%, -50%) translate(-1px, 1px); }
+        }
         @keyframes pulse-aura { 0% { transform: scale(0.9); opacity: 0.5; } 50% { transform: scale(1.1); opacity: 0.8; } 100% { transform: scale(0.9); opacity: 0.5; } }
         #playerMarker { display: none; }
         #scareOverlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; color: #fff; font-size: 2rem; opacity: 0; transition: opacity .2s ease; text-shadow: 0 0 20px #ff2471, 0 0 80px rgba(255,36,113,.3); }
@@ -96,13 +107,23 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
         .ability-slot { display: flex; flex-direction: column; align-items: center; }
         .key-hint { font-size: 0.7rem; color: #a5b4fc; font-weight: 800; margin-bottom: 2px; text-transform: uppercase; }
         .ability-btn {
+            position: relative;
             width: 46px; height: 46px; border-radius: 10px;
             background: #4f46e5; color: #fff; border: none; cursor: pointer;
             display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
-            transition: filter 0.2s, opacity 0.2s, transform 0.1s;
+            transition: transform 0.1s, filter 0.2s, opacity 0.2s;
         }
         .ability-btn:active { transform: scale(0.95); }
-        .ability-btn.cooldown { filter: grayscale(1); opacity: 0.4; cursor: not-allowed; }
+        .ability-btn.cooldown { filter: grayscale(1); opacity: 0.5; cursor: not-allowed; }
+        .ability-btn .cd-label {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.6); border-radius: 10px;
+            font-size: 0.9rem; font-weight: bold; color: #fff;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        .ability-btn.cooldown .cd-label { opacity: 1; }
+        #walker-btn-q { background: #facc15; color: #111; }
         #scareEffectButtons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
         #scareEffectButtons button { padding: 10px 14px; font-size: 0.85rem; border-radius: 8px; background: #dc2626; color: #fff; border: none; cursor: pointer; }
         #scareEffectButtons button { background: #dc2626; }
@@ -155,19 +176,31 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
                 <div id="abilityButtons" class="ability-group">
                     <div class="ability-slot">
                         <div class="key-hint">Q</div>
-                        <button type="button" class="ability-btn" id="scarer-btn-q" onclick="window.triggerScarerAbility('q')">👻</button>
+                        <button type="button" class="ability-btn" id="scarer-btn-q" onclick="window.triggerScarerAbility('q')">
+                            👻
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                     <div class="ability-slot">
                         <div class="key-hint">W</div>
-                        <button type="button" class="ability-btn" id="scarer-btn-w" onclick="window.triggerScarerAbility('w')">💀</button>
+                        <button type="button" class="ability-btn" id="scarer-btn-w" onclick="window.triggerScarerAbility('w')">
+                            💀
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                     <div class="ability-slot">
                         <div class="key-hint">E</div>
-                        <button type="button" class="ability-btn" id="scarer-btn-e" onclick="window.triggerScarerAbility('e')">❄️</button>
+                        <button type="button" class="ability-btn" id="scarer-btn-e" onclick="window.triggerScarerAbility('e')">
+                            ❄️
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                     <div class="ability-slot">
                         <div class="key-hint">R</div>
-                        <button type="button" class="ability-btn" id="scarer-btn-r" onclick="window.triggerScarerAbility('r')">⚡</button>
+                        <button type="button" class="ability-btn" id="scarer-btn-r" onclick="window.triggerScarerAbility('r')">
+                            ⚡
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                 </div>
                 <div id="scareEffectButtons">
@@ -181,19 +214,31 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
                 <div id="walkerAbilityButtons" class="ability-group">
                     <div class="ability-slot">
                         <div class="key-hint">Q</div>
-                        <button type="button" class="ability-btn" id="walker-btn-q" style="background:#facc15;" onclick="window.activateWalkerAbility('q')">🛡️</button>
+                        <button type="button" class="ability-btn" id="walker-btn-q" onclick="window.activateWalkerAbility('q')">
+                            🛡️
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                     <div class="ability-slot">
                         <div class="key-hint">W</div>
-                        <button type="button" class="ability-btn" id="walker-btn-w" onclick="window.activateWalkerAbility('w')">🏃</button>
+                        <button type="button" class="ability-btn" id="walker-btn-w" onclick="window.activateWalkerAbility('w')">
+                            🏃
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                     <div class="ability-slot">
                         <div class="key-hint">E</div>
-                        <button type="button" class="ability-btn" id="walker-btn-e" onclick="window.activateWalkerAbility('e')">👁️</button>
+                        <button type="button" class="ability-btn" id="walker-btn-e" onclick="window.activateWalkerAbility('e')">
+                            👁️
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                     <div class="ability-slot">
                         <div class="key-hint">R</div>
-                        <button type="button" class="ability-btn" id="walker-btn-r" onclick="window.activateWalkerAbility('r')">🕯️</button>
+                        <button type="button" class="ability-btn" id="walker-btn-r" onclick="window.activateWalkerAbility('r')">
+                            🕯️
+                            <span class="cd-label"></span>
+                        </button>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -304,6 +349,8 @@ foreach (['ability1', 'ability2', 'ability3', 'ability4'] as $ability) {
     </script>
     <script src="game.js"></script>
     <script>
+
+        
     // Robustly patch renderGameState only after game.js is loaded and the function is defined
     (function patchRenderGameStateWhenReady() {
         function doPatch() {

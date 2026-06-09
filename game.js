@@ -13,6 +13,8 @@ const SCARER_START_X = 95;
 const PROXIMITY_DISTANCE = 14;
 const GUARDIAN_DURATION = 5000; // 5 seconds of light
 const GUARDIAN_COOLDOWN = 15000; // 15 second cooldown
+const PANIC_DURATION = 3000;    // 3 seconds of panic
+const PANIC_COOLDOWN = 12000;   // 12 second cooldown
 
 const SCARER_ABILITY_SOUNDS = (window.SCARER_ABILITY_SOUNDS && typeof window.SCARER_ABILITY_SOUNDS === 'object')
   ? window.SCARER_ABILITY_SOUNDS
@@ -243,7 +245,8 @@ function renderPlayerLayer(players) {
     avatar.className = `player-avatar ${role}` + 
                        (player.x <= SAFE_ZONE_X && role === 'walker' ? ' near' : '') +
                        (player.frozen ? ' frozen' : '') +
-                       (player.abilities?.guardianActive ? ' has-aura' : '');
+                       (player.abilities?.guardianActive ? ' has-aura' : '') +
+                       (player.abilities?.panicActive ? ' panic' : '');
     avatar.style.left = `${Math.min(96, Math.max(2, player.x))}%`;
     avatar.style.top = `${Math.min(88, Math.max(2, player.y))}%`;
     avatar.dataset.label = role === 'host' ? 'H' : 'W';
@@ -674,8 +677,10 @@ function updateAbilityUI() {
       const isActive = remaining > 0;
 
       btn.classList.toggle('cooldown', isActive);
-      if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
-      btn.textContent = isActive ? `${remaining}s` : btn.dataset.originalText;
+      const cdLabel = btn.querySelector('.cd-label');
+      if (cdLabel) {
+        cdLabel.textContent = isActive ? `${remaining}s` : '';
+      }
     });
   } else {
     const self = gameState.players[localPeerState.peerId];
@@ -683,13 +688,17 @@ function updateAbilityUI() {
       keys.forEach(k => {
         const btn = document.getElementById(`walker-btn-${k}`);
         if (!btn) return;
-        const cd = k === 'q' ? (self.abilities?.guardianCooldown || 0) : 0;
+        let cd = 0;
+        if (k === 'q') cd = self.abilities?.guardianCooldown || 0;
+        else if (k === 'w') cd = self.abilities?.panicCooldown || 0;
         const remaining = Math.max(0, Math.ceil((cd - now) / 1000));
         const isActive = remaining > 0;
 
         btn.classList.toggle('cooldown', isActive);
-        if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
-        btn.textContent = isActive ? `${remaining}s` : btn.dataset.originalText;
+        const cdLabel = btn.querySelector('.cd-label');
+        if (cdLabel) {
+          cdLabel.textContent = isActive ? `${remaining}s` : '';
+        }
       });
     }
   }
@@ -697,10 +706,11 @@ function updateAbilityUI() {
 setInterval(updateAbilityUI, 100);
 
 window.activateWalkerAbility = function(key) {
+  const selfId = localPeerState.peerId;
+  const self = gameState.players[selfId];
+  if (!self || self.frozen) return;
+
   if (key === 'q') {
-    const selfId = localPeerState.peerId;
-    const self = gameState.players[selfId];
-    if (!self || self.frozen) return;
     if (self.abilities?.guardianCooldown > Date.now()) return;
 
     self.abilities = self.abilities || {};
@@ -717,6 +727,23 @@ window.activateWalkerAbility = function(key) {
       if (p && p.abilities) p.abilities.guardianActive = false;
       sendMovement(0, 0);
     }, GUARDIAN_DURATION);
+  } else if (key === 'w') {
+    if (self.abilities?.panicCooldown > Date.now()) return;
+
+    self.abilities = self.abilities || {};
+    self.abilities.panicActive = true;
+    self.abilities.panicEnds = Date.now() + PANIC_DURATION;
+    self.abilities.panicCooldown = Date.now() + PANIC_COOLDOWN;
+
+    debug('Panic activated!');
+    displayScare('AAAAAAAAAH!');
+    sendMovement(0, 0);
+
+    setTimeout(() => {
+      const p = gameState.players[selfId];
+      if (p && p.abilities) p.abilities.panicActive = false;
+      sendMovement(0, 0);
+    }, PANIC_DURATION);
   }
 };
 
@@ -1017,8 +1044,15 @@ if (isGameplayPage()) {
   // Applies the last pressed direction every 100ms
   setInterval(() => {
     if (movementDir.dx !== 0 || movementDir.dy !== 0) {
-      // Use the stored direction to trigger movement
-      sendMovement(movementDir.dx, movementDir.dy);
+      const selfId = localPeerState.peerId || (hostState.hostPeerId === 'host' ? 'host' : null);
+      const self = selfId ? gameState.players[selfId] : null;
+      let multiplier = 1.0;
+      
+      if (self && self.abilities?.panicActive) {
+        multiplier = 2.0; // Double speed during panic
+      }
+      
+      sendMovement(movementDir.dx * multiplier, movementDir.dy * multiplier);
     }
   }, 100);
 
