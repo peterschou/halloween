@@ -24,7 +24,7 @@ if ($instanceId <= 0) {
 }
 
 $pdo = createPDO($DB_CONFIG);
-$stmt = $pdo->prepare('UPDATE game_instances SET status = "closed" WHERE id = :id AND host_user_id = :uid');
+$stmt = $pdo->prepare("UPDATE `{$DB_CONFIG['prefix']}game_instances` SET status = 'closed' WHERE id = :id AND host_user_id = :uid");
 $stmt->execute([
     ':id' => $instanceId,
     ':uid' => $_SESSION['user_id'],

@@ -4,12 +4,19 @@
 declare(strict_types=1);
 
 $DB_CONFIG = [
-    'host' => getenv('DB_HOST') ?: 'db',
-    'name' => getenv('DB_NAME') ?: 'scarepath',
-    'user' => getenv('DB_USER') ?: 'scarepath_user',
-    'pass' => getenv('DB_PASS') ?: 'secret',
+    'host' => 'localhost',
+    'name' => 'scarepath',
+    'user' => 'root',
+    'pass' => '',
     'charset' => 'utf8mb4',
+    'prefix' => 'sp_',
 ];
+
+// Load server-specific configuration (credentials and prefix)
+if (file_exists(__DIR__ . '/db_credentials.php')) {
+    $overrides = require __DIR__ . '/db_credentials.php';
+    $DB_CONFIG = array_merge($DB_CONFIG, $overrides);
+}
 
 const SITE_TITLE = 'The Scare Path';
 

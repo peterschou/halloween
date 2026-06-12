@@ -1,5 +1,11 @@
 <?php
 session_start();
+
+if (!file_exists(__DIR__ . '/db_credentials.php')) {
+    header('Location: index.php');
+    exit;
+}
+
 require_once __DIR__ . '/config.php';
 
 $pdo = createPDO($DB_CONFIG);
@@ -12,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($username === '' || $password === '') {
             $message = 'Please fill in both username and password.';
         } else {
-            $stmt = $pdo->prepare('SELECT id, username, password_hash, role FROM users WHERE username = :username AND is_active = 1 LIMIT 1');
+            $stmt = $pdo->prepare("SELECT id, username, password_hash, role FROM `{$DB_CONFIG['prefix']}users` WHERE username = :username AND is_active = 1 LIMIT 1");
             $stmt->execute([':username' => $username]);
             $user = $stmt->fetch();
             if ($user && password_verify($password, $user['password_hash']) && $user['role'] === 'scarer') {
@@ -37,7 +43,7 @@ $scarerName = $_SESSION['username'] ?? '';
 $scarerId = $_SESSION['user_id'] ?? 0;
 
 $rooms = [];
-$stmt = $pdo->prepare('SELECT gi.id, gi.room_id, gi.status, u.username AS host_username, gi.created_at FROM game_instances gi JOIN users u ON u.id = gi.host_user_id WHERE gi.status IN ("waiting","active") ORDER BY gi.created_at DESC LIMIT 50');
+$stmt = $pdo->prepare("SELECT gi.id, gi.room_id, gi.status, u.username AS host_username, gi.created_at FROM `{$DB_CONFIG['prefix']}game_instances` gi JOIN `{$DB_CONFIG['prefix']}users` u ON u.id = gi.host_user_id WHERE gi.status IN ('waiting','active') ORDER BY gi.created_at DESC LIMIT 50");
 $stmt->execute();
 $rooms = $stmt->fetchAll();
 ?>

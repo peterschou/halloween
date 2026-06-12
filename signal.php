@@ -10,6 +10,12 @@ ini_set('display_startup_errors', '0');
 error_reporting(E_ALL);
 
 header('Content-Type: application/json; charset=utf-8');
+
+if (!file_exists(__DIR__ . '/db_credentials.php')) {
+    http_response_code(503);
+    exit(json_encode(['success' => false, 'error' => 'Application not configured.']));
+}
+
 require_once __DIR__ . '/config.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -56,7 +62,7 @@ function createRoom(PDO $pdo, array $input): void
         jsonError('Invalid room_id or host_user_id.', 400);
     }
 
-    $stmt = $pdo->prepare('INSERT INTO game_instances (room_id, host_user_id, status) VALUES (:room_id, :host_user_id, :status)');
+    $stmt = $pdo->prepare("INSERT INTO `{$GLOBALS['DB_CONFIG']['prefix']}game_instances` (room_id, host_user_id, status) VALUES (:room_id, :host_user_id, :status)");
     try {
         $stmt->execute([
             ':room_id' => $roomId,
@@ -76,12 +82,12 @@ function createRoom(PDO $pdo, array $input): void
 function listRooms(PDO $pdo): void
 {
     $stmt = $pdo->prepare(
-        'SELECT gi.room_id, gi.status, u.username AS host_username, gi.created_at
-         FROM game_instances gi
-         JOIN users u ON u.id = gi.host_user_id
-         WHERE gi.status IN ("waiting","active")
+        "SELECT gi.room_id, gi.status, u.username AS host_username, gi.created_at
+         FROM `{$GLOBALS['DB_CONFIG']['prefix']}game_instances` gi
+         JOIN `{$GLOBALS['DB_CONFIG']['prefix']}users` u ON u.id = gi.host_user_id
+         WHERE gi.status IN ('waiting','active')
          ORDER BY gi.created_at DESC
-         LIMIT 50'
+         LIMIT 50"
     );
     $stmt->execute();
     $rooms = $stmt->fetchAll();
@@ -107,7 +113,7 @@ function sendSignal(PDO $pdo, array $input): void
     }
 
     $stmt = $pdo->prepare(
-        'INSERT INTO signaling_queue (instance_id, from_peer, to_peer, kind, payload) VALUES (:instance_id, :from_peer, :to_peer, :kind, :payload)'
+        "INSERT INTO `{$GLOBALS['DB_CONFIG']['prefix']}signaling_queue` (instance_id, from_peer, to_peer, kind, payload) VALUES (:instance_id, :from_peer, :to_peer, :kind, :payload)"
     );
     $stmt->execute([
         ':instance_id' => $instanceId,
@@ -130,7 +136,7 @@ function pollSignals(PDO $pdo, array $input): void
         jsonError('Invalid poll request. Required fields: instance_id and target_peer.', 400);
     }
 
-    $query = 'SELECT id, instance_id, from_peer, to_peer, kind, payload, created_at FROM signaling_queue WHERE instance_id = :instance_id AND to_peer = :to_peer AND consumed_at IS NULL';
+    $query = "SELECT id, instance_id, from_peer, to_peer, kind, payload, created_at FROM `{$GLOBALS['DB_CONFIG']['prefix']}signaling_queue` WHERE instance_id = :instance_id AND to_peer = :to_peer AND consumed_at IS NULL";
     if ($kindFilter !== null && in_array($kindFilter, ['offer', 'answer', 'ice'], true)) {
         $query .= ' AND kind = :kind';
     }
@@ -141,9 +147,6 @@ function pollSignals(PDO $pdo, array $input): void
         ':instance_id' => $instanceId,
         ':to_peer' => $targetPeer,
     ];
-    if (isset($params[':kind']) && $kindFilter !== null) {
-        $params[':kind'] = $kindFilter;
-    }
     if ($kindFilter !== null && in_array($kindFilter, ['offer', 'answer', 'ice'], true)) {
         $params[':kind'] = $kindFilter;
     }
@@ -170,7 +173,7 @@ function consumeSignals(PDO $pdo, array $input): void
     }
 
     $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $stmt = $pdo->prepare('UPDATE signaling_queue SET consumed_at = NOW() WHERE id IN (' . $placeholders . ')');
+    $stmt = $pdo->prepare("UPDATE `{$GLOBALS['DB_CONFIG']['prefix']}signaling_queue` SET consumed_at = NOW() WHERE id IN (" . $placeholders . ")");
     $stmt->execute($ids);
 
     jsonResponse(['success' => true, 'consumed' => $stmt->rowCount()]);
