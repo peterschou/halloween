@@ -25,12 +25,20 @@ docker compose up -d --build
 
 ## Database Setup
 
-After Docker is running, import the schema and sample data into MySQL.
-
-The `db.sql` file is already available inside the web container at `/var/www/html/db.sql` because the repository is mounted.
+After Docker is running, apply the schema and sample data with the project migration script so the configured table prefix is replaced correctly.
 
 ```bash
-docker compose exec db mysql -u root -psecret scarepath < /var/www/html/db.sql
+docker compose exec -T web php /var/www/html/migrate.php
+```
+
+This uses the prefix configured in `db_credentials.php` (for example `sp_`) and creates the current schema from `db.sql`.
+
+The raw SQL file contains the placeholder `{{PREFIX}}`; importing it directly with MySQL would create literal placeholder-named tables instead of the real application tables.
+
+If you want to run it directly from the repo root on a host with PHP installed:
+
+```bash
+php migrate.php
 ```
 
 If the schema import fails, you can run the SQL file from phpMyAdmin using the import UI.
